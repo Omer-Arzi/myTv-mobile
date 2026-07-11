@@ -9,12 +9,24 @@ interface Props {
   refreshControl?: React.ReactElement<RefreshControlProps>;
   contentContainerStyle?: StyleProp<ViewStyle>;
   edges?: Edge[];
+  // Lets a screen temporarily disable scrolling — e.g. while a child card
+  // (WatchNextCard) has locked onto a horizontal swipe, as an extra
+  // defensive layer against this ScrollView's native pan recognizer
+  // fighting it on a diagonal drag. Defaults to normal scrolling.
+  scrollEnabled?: boolean;
 }
 
 // The one place screen background/safe-area handling lives — every screen
 // wraps its content in this instead of repeating SafeAreaView/ScrollView
 // boilerplate with its own background color.
-export function Screen({ children, scroll = true, refreshControl, contentContainerStyle, edges = ['top', 'bottom'] }: Props) {
+export function Screen({
+  children,
+  scroll = true,
+  refreshControl,
+  contentContainerStyle,
+  edges = ['top', 'bottom'],
+  scrollEnabled = true,
+}: Props) {
   if (!scroll) {
     return (
       <SafeAreaView style={styles.container} edges={edges}>
@@ -30,6 +42,7 @@ export function Screen({ children, scroll = true, refreshControl, contentContain
         contentContainerStyle={[styles.scrollContent, contentContainerStyle]}
         refreshControl={refreshControl}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={scrollEnabled}
       >
         {children}
       </ScrollView>

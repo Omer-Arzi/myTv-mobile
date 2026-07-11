@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { ActivityIndicator, Animated, Dimensions, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import { PosterImage } from './PosterImage';
 import { colors, radii, spacing } from '../theme/theme';
+import { getRemainingEpisodesIndicator } from '../utils/remainingEpisodesIndicator';
 
 interface Props {
   seriesTitle: string;
@@ -9,10 +10,24 @@ interface Props {
   seasonNumber: number;
   episodeNumber: number;
   episodeTitle: string | null;
+  // How many known catalog episodes come after this episode — drives the
+  // small "+N" / "Final episode" indicator beside the SxxEyy label. Absent
+  // or null renders neither (see getRemainingEpisodesIndicator).
+  remainingEpisodesAfterNext?: number | null;
   onPress: () => void;
   onMarkWatched: () => void;
   isMarking?: boolean;
   markDisabled?: boolean;
+  // Marked watched earlier in this session (mutation already succeeded).
+  // The card stays in place — see HomeScreen — but goes into a permanent
+  // fade/checked state and can no longer be tapped/swiped to re-mark.
+  isWatched?: boolean;
+  // Fired true the instant this card locks onto a horizontal swipe, false
+  // the instant that gesture ends (release OR cancel) — lets a parent
+  // ScrollView disable its own scrolling for the duration as an extra
+  // defensive layer (see HomeScreen). Optional: the card is fully
+  // functional without a parent wiring this up.
+  onSwipeLockChange?: (locked: boolean) => void;
 }
 
 const CARD_HEIGHT = 92;
@@ -22,24 +37,41 @@ const ACTION_SIZE = 40;
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CARD_WIDTH = SCREEN_WIDTH - spacing.lg * 2;
 
-// Three separate, deliberately distinct concepts — collapsing them into one
-// or two knobs is what made the previous version commit on a light flick:
+// Two separate, deliberately distinct concepts — collapsing them into one
+// knob is what made earlier versions commit on a light flick:
 //
-// 1. How much horizontal finger movement before this is even recognized as
-//    a swipe (below this, taps and vertical list scrolling pass straight
-//    through to the Pressable/ScrollView untouched).
-const SWIPE_ACTIVATION_THRESHOLD = 8;
-// 2. How far the card can visually travel — generous, so there's room for
+// 1. How far the card can visually travel — generous, so there's room for
 //    a real "drag it most of the way off" gesture like TV Time's, not a
 //    twitch.
 const SWIPE_REVEAL_DISTANCE = Math.min(CARD_WIDTH * 0.8, 260);
-// 3. Fraction of SWIPE_REVEAL_DISTANCE the drag must cross before release
+// 2. Fraction of SWIPE_REVEAL_DISTANCE the drag must cross before release
 //    commits to marking watched. High on purpose: a small or medium swipe
 //    should only ever peek the affordance and spring back, never fire the
 //    mutation. At this ratio that's ~180-210px on typical iPhone widths,
 //    matching the "almost to the end" feel this is modeling.
 const SWIPE_COMMIT_THRESHOLD_RATIO = 0.75;
 const SWIPE_COMMIT_THRESHOLD = SWIPE_REVEAL_DISTANCE * SWIPE_COMMIT_THRESHOLD_RATIO;
+
+// --- Direction-lock thresholds ---------------------------------------
+// A mostly-horizontal drag needs to stay captured by this card even when
+// the finger drifts up/down a little; a mostly-vertical drag needs to
+// release to the parent ScrollView immediately rather than fight it. Three
+// more distinct knobs, none of which is SWIPE_ACTIVATION_THRESHOLD above
+// (that one only gates when we start considering direction at all; these
+// gate which direction wins once movement is happening).
+//
+// How far dx must travel, while also clearly dominating dy, before we lock
+// onto "this is a horizontal swipe" for the rest of the gesture.
+const HORIZONTAL_ACTIVATION_THRESHOLD = 14;
+// How much bigger |dx| must be than |dy| to count as "clearly horizontal."
+const HORIZONTAL_DOMINANCE_RATIO = 1.3;
+// How far dy must travel, while dominating dx, before we give up on this
+// gesture entirely and let the ScrollView have it — checked independently
+// of the horizontal condition so an ambiguous diagonal doesn't sit in limbo
+// forever; once either side wins, the decision is locked for the gesture.
+const VERTICAL_FAIL_THRESHOLD = 16;
+
+type GestureDirection = 'undetermined' | 'horizontal' | 'vertical';
 
 // TV Time-style compact "continue watching" row: thumbnail on the left,
 // series title as a small pill + a large SxxEyy + episode title in the
@@ -59,25 +91,37 @@ const SWIPE_COMMIT_THRESHOLD = SWIPE_REVEAL_DISTANCE * SWIPE_COMMIT_THRESHOLD_RA
 // circle — anything short of that (including a fast but short flick; there
 // is deliberately no velocity-based completion) always springs back with no
 // mutation call. No gesture library is installed, so this uses core RN
-// PanResponder/Animated rather than reanimated/gesture-handler.
+// PanResponder/Animated rather than reanimated/gesture-handler — see
+// GestureDirection below for how it stays stable against a parent
+// ScrollView on a diagonal drag despite that.
 export function WatchNextCard({
   seriesTitle,
   imageUrl,
   seasonNumber,
   episodeNumber,
   episodeTitle,
+  remainingEpisodesAfterNext,
   onPress,
   onMarkWatched,
   isMarking = false,
   markDisabled = false,
+  isWatched = false,
+  onSwipeLockChange,
 }: Props) {
+  const remainingIndicator = getRemainingEpisodesIndicator(remainingEpisodesAfterNext);
   const translateX = useRef(new Animated.Value(0)).current;
 
   // PanResponder is created once; callbacks read from this ref so they
   // always see the latest props without the responder being torn down and
   // recreated mid-gesture.
-  const latest = useRef({ onMarkWatched, isMarking, markDisabled });
-  latest.current = { onMarkWatched, isMarking, markDisabled };
+  const latest = useRef({ onMarkWatched, isMarking, markDisabled, onSwipeLockChange });
+  latest.current = { onMarkWatched, isMarking, markDisabled, onSwipeLockChange };
+
+  // Locked once per gesture and never reconsidered afterward — this is what
+  // stops "dy grows a bit mid-swipe" from cancelling an already-recognized
+  // horizontal drag, and equally stops "dx recovers a bit mid-scroll" from
+  // yanking responder-ship away from an already-conceded vertical scroll.
+  const direction = useRef<GestureDirection>('undetermined');
 
   const resetPosition = () => {
     Animated.spring(translateX, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start();
@@ -85,15 +129,44 @@ export function WatchNextCard({
 
   const panResponder = useRef(
     PanResponder.create({
+      // Only ever claim based on movement, never on bare touch-down — a
+      // plain tap must still fall through to the Pressables untouched.
+      // This also resets direction for the new gesture.
+      onStartShouldSetPanResponder: () => {
+        direction.current = 'undetermined';
+        return false;
+      },
       onMoveShouldSetPanResponder: (_, gesture) => {
         const { isMarking: marking, markDisabled: disabled } = latest.current;
         if (marking || disabled) return false;
-        return gesture.dx > SWIPE_ACTIVATION_THRESHOLD && Math.abs(gesture.dx) > Math.abs(gesture.dy);
+
+        if (direction.current === 'horizontal') return true;
+        if (direction.current === 'vertical') return false;
+
+        const absDx = Math.abs(gesture.dx);
+        const absDy = Math.abs(gesture.dy);
+
+        if (gesture.dx > HORIZONTAL_ACTIVATION_THRESHOLD && absDx > absDy * HORIZONTAL_DOMINANCE_RATIO) {
+          direction.current = 'horizontal';
+          return true;
+        }
+
+        if (absDy > VERTICAL_FAIL_THRESHOLD && absDy > absDx) {
+          direction.current = 'vertical';
+          return false;
+        }
+
+        return false; // still ambiguous — ask again on the next move sample
+      },
+      onPanResponderGrant: () => {
+        // Only reachable via the 'horizontal' branch above.
+        latest.current.onSwipeLockChange?.(true);
       },
       onPanResponderMove: (_, gesture) => {
         translateX.setValue(Math.max(0, Math.min(gesture.dx, SWIPE_REVEAL_DISTANCE)));
       },
       onPanResponderRelease: (_, gesture) => {
+        latest.current.onSwipeLockChange?.(false);
         const dx = Math.max(0, Math.min(gesture.dx, SWIPE_REVEAL_DISTANCE));
         if (dx >= SWIPE_COMMIT_THRESHOLD) {
           Animated.spring(translateX, { toValue: SWIPE_REVEAL_DISTANCE, useNativeDriver: true, bounciness: 0 }).start();
@@ -102,7 +175,10 @@ export function WatchNextCard({
           resetPosition();
         }
       },
-      onPanResponderTerminate: resetPosition,
+      onPanResponderTerminate: () => {
+        latest.current.onSwipeLockChange?.(false);
+        resetPosition();
+      },
     }),
   ).current;
 
@@ -138,16 +214,33 @@ export function WatchNextCard({
       </View>
 
       <Animated.View style={{ transform: [{ translateX }] }} {...panResponder.panHandlers}>
-        <Pressable style={({ pressed }) => [styles.card, pressed && styles.pressed]} onPress={onPress}>
+        <Pressable
+          style={({ pressed }) => [styles.card, pressed && styles.pressed, isWatched && styles.cardWatched]}
+          onPress={onPress}
+        >
           <PosterImage uri={imageUrl} width={THUMB_SIZE} height={THUMB_SIZE} radius={radii.md} title={seriesTitle} />
 
           <View style={styles.content}>
-            <View style={styles.pill}>
-              <Text style={styles.pillText} numberOfLines={1}>
-                {seriesTitle}
-              </Text>
+            <View style={styles.pillRow}>
+              <View style={styles.pill}>
+                <Text style={styles.pillText} numberOfLines={1}>
+                  {seriesTitle}
+                </Text>
+              </View>
+              {isWatched ? (
+                <View style={styles.watchedBadge}>
+                  <Text style={styles.watchedBadgeText}>Watched</Text>
+                </View>
+              ) : null}
             </View>
-            <Text style={styles.episodeCode}>{`S${seasonNumber}E${episodeNumber}`}</Text>
+            <View style={styles.episodeCodeRow}>
+              <Text style={styles.episodeCode}>{`S${seasonNumber}E${episodeNumber}`}</Text>
+              {remainingIndicator ? (
+                <Text style={styles.remainingIndicator} numberOfLines={1}>
+                  {remainingIndicator.text}
+                </Text>
+              ) : null}
+            </View>
             {episodeTitle ? (
               <Text style={styles.episodeTitle} numberOfLines={1}>
                 {episodeTitle}
@@ -156,21 +249,65 @@ export function WatchNextCard({
           </View>
 
           <Pressable
-            style={({ pressed }) => [styles.actionCircle, pressed && styles.actionPressed]}
+            style={({ pressed }) => [
+              styles.actionCircle,
+              pressed && styles.actionPressed,
+              isWatched && styles.actionCircleWatched,
+            ]}
             onPress={onMarkWatched}
             disabled={isMarking || markDisabled}
             hitSlop={8}
             accessibilityRole="button"
-            accessibilityLabel="Mark episode as watched"
+            accessibilityLabel={isWatched ? 'Episode watched' : 'Mark episode as watched'}
           >
             {isMarking ? (
               <ActivityIndicator size="small" color={colors.accent} />
             ) : (
-              <Text style={styles.actionGlyph}>✓</Text>
+              <Text style={[styles.actionGlyph, isWatched && styles.actionGlyphWatched]}>✓</Text>
             )}
           </Pressable>
         </Pressable>
       </Animated.View>
+    </View>
+  );
+}
+
+interface CaughtUpCardProps {
+  seriesTitle: string;
+  imageUrl: string | null;
+  onPress: () => void;
+}
+
+// Rendered in a Watch Next slot once its series has no next episode left
+// after a mark-watched (background refetch came back with the series gone
+// from watchNext entirely). Same footprint as WatchNextCard — same slot,
+// same height — but permanently non-actionable: no swipe, no mark button,
+// just a "caught up" badge until the next explicit refresh/remount decides
+// whether to drop the slot for real.
+export function CaughtUpCard({ seriesTitle, imageUrl, onPress }: CaughtUpCardProps) {
+  return (
+    <View style={styles.swipeContainer}>
+      <Pressable style={({ pressed }) => [styles.card, styles.cardWatched, pressed && styles.pressed]} onPress={onPress}>
+        <PosterImage uri={imageUrl} width={THUMB_SIZE} height={THUMB_SIZE} radius={radii.md} title={seriesTitle} />
+
+        <View style={styles.content}>
+          <View style={styles.pillRow}>
+            <View style={styles.pill}>
+              <Text style={styles.pillText} numberOfLines={1}>
+                {seriesTitle}
+              </Text>
+            </View>
+            <View style={styles.watchedBadge}>
+              <Text style={styles.watchedBadgeText}>Caught up</Text>
+            </View>
+          </View>
+          <Text style={styles.episodeTitle}>No new episodes yet</Text>
+        </View>
+
+        <View style={[styles.actionCircle, styles.actionCircleWatched]}>
+          <Text style={[styles.actionGlyph, styles.actionGlyphWatched]}>✓</Text>
+        </View>
+      </Pressable>
     </View>
   );
 }
@@ -198,7 +335,9 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   pressed: { opacity: 0.75 },
+  cardWatched: { opacity: 0.55 },
   content: { flex: 1, gap: 3, justifyContent: 'center' },
+  pillRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   pill: {
     alignSelf: 'flex-start',
     maxWidth: '100%',
@@ -208,7 +347,22 @@ const styles = StyleSheet.create({
     borderRadius: radii.full,
   },
   pillText: { fontSize: 11, fontWeight: '600', color: colors.textSecondary },
+  watchedBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.success,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radii.full,
+  },
+  watchedBadgeText: { fontSize: 11, fontWeight: '700', color: '#0A0A0D' },
+  episodeCodeRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
   episodeCode: { fontSize: 17, fontWeight: '700', color: colors.textPrimary },
+  // Deliberately smaller/lighter than episodeCode and not a pill/badge —
+  // see WatchNextCard's remaining-episodes indicator spec. writingDirection
+  // is an iOS-only hint; the real cross-platform bidi safety comes from the
+  // LRI/PDI isolate marks already embedded in the text itself (see
+  // getRemainingEpisodesIndicator) — this is defense in depth, not the fix.
+  remainingIndicator: { fontSize: 13, fontWeight: '400', color: colors.textSecondary, writingDirection: 'ltr' },
   episodeTitle: { fontSize: 13, color: colors.textSecondary },
   actionCircle: {
     width: ACTION_SIZE,
@@ -218,6 +372,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  actionCircleWatched: { backgroundColor: colors.success },
   actionPressed: { opacity: 0.6 },
   actionGlyph: { fontSize: 16, fontWeight: '700', color: colors.accent },
+  actionGlyphWatched: { color: '#0A0A0D' },
 });

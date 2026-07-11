@@ -22,6 +22,11 @@ export interface WatchNextItem {
   nextEpisode: EpisodeSummary;
   lastWatchedAt: string | null;
   userStatus: UserSeriesStatus;
+  // How many known catalog episodes come after nextEpisode (nextEpisode
+  // itself not counted). Null when the server couldn't reliably determine
+  // catalog position — render nothing, never assume 0. See
+  // src/utils/remainingEpisodesIndicator.ts for the display rule.
+  remainingEpisodesAfterNext: number | null;
 }
 
 // Mirrors server/src/modules/me/dto/stale-series-item.dto.ts
