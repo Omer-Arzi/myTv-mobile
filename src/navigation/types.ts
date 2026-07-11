@@ -4,11 +4,17 @@
 export type RootStackParamList = {
   Tabs: undefined;
   SeriesDetail: { seriesId: string; title?: string };
+  NeedsAttention: undefined;
+  MigrationProposal: { seriesId: string; title?: string };
+  MigrationHistory: undefined;
+  MigrationHistoryDetail: { migrationId: string; seriesTitle?: string };
+  ProviderCandidateSearch: { seriesId: string; title?: string };
 };
 
 export type TabParamList = {
   Home: undefined;
   Watchlist: undefined;
+  Library: undefined;
   Search: undefined;
 };
 

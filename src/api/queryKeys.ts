@@ -8,4 +8,9 @@ export const queryKeys = {
   watchlist: ['watchlist'] as const,
   seriesDetail: (seriesId: string) => ['series', seriesId] as const,
   seriesList: (params: ListSeriesParams) => ['series', 'list', params] as const,
+  migrationWorkbench: ['migration-workbench'] as const,
+  migrationProposal: (seriesId: string) => ['migration-workbench', seriesId, 'proposal'] as const,
+  providerCandidates: (seriesId: string) => ['migration-workbench', seriesId, 'candidates'] as const,
+  migrationHistory: ['migration-workbench', 'history'] as const,
+  migrationHistoryDetail: (migrationId: string) => ['migration-workbench', 'history', migrationId] as const,
 };

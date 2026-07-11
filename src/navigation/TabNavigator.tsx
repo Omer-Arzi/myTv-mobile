@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { HomeScreen } from '../screens/HomeScreen';
 import { WatchlistScreen } from '../screens/WatchlistScreen';
+import { LibraryScreen } from '../screens/LibraryScreen';
 import { SearchScreen } from '../screens/SearchScreen';
 import { TabParamList } from './types';
 import { colors } from '../theme/theme';
@@ -36,6 +37,15 @@ export function TabNavigator() {
         component={WatchlistScreen}
         options={{
           tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? 'tv' : 'tv-outline'} size={size} color={color} />,
+        }}
+      />
+      <Tab.Screen
+        name="Library"
+        component={LibraryScreen}
+        options={{
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'library' : 'library-outline'} size={size} color={color} />
+          ),
         }}
       />
       <Tab.Screen
