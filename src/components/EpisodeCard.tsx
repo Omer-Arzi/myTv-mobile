@@ -2,12 +2,17 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { PosterImage } from './PosterImage';
 import { colors, radii, spacing, typography } from '../theme/theme';
 import { formatDate } from '../utils/format';
+import { isEpisodeReleased } from '../utils/episodeRelease';
 
 interface Props {
   episodeNumber: number;
   title: string | null;
   imageUrl: string | null;
   seriesTitle?: string | null;
+  // Drives the release-date gate below — a future/unknown episode can
+  // never be marked watched from here (client-side defense-in-depth;
+  // the server rejects it regardless, see EpisodeWatchService.markWatched).
+  airDate: string | null;
   watched: boolean;
   watchedAt: string | null;
   note: string | null;
@@ -16,6 +21,12 @@ interface Props {
   onEditNote?: () => void;
   isMarking?: boolean;
   markDisabled?: boolean;
+  // Secondary, deliberately subtle "undo" action — only rendered for
+  // watched episodes. Omitting onUnwatch hides the affordance entirely
+  // (used for episodes with no episodeWatchId to unwatch, defensively).
+  onUnwatch?: () => void;
+  isUnwatching?: boolean;
+  unwatchDisabled?: boolean;
 }
 
 const STILL_WIDTH = 108;
@@ -27,6 +38,7 @@ export function EpisodeCard({
   title,
   imageUrl,
   seriesTitle,
+  airDate,
   watched,
   watchedAt,
   note,
@@ -35,7 +47,12 @@ export function EpisodeCard({
   onEditNote,
   isMarking = false,
   markDisabled = false,
+  onUnwatch,
+  isUnwatching = false,
+  unwatchDisabled = false,
 }: Props) {
+  const released = isEpisodeReleased(airDate);
+
   return (
     <View style={[styles.row, watched && styles.rowWatched]}>
       <View style={styles.stillWrapper}>
@@ -53,7 +70,7 @@ export function EpisodeCard({
           {title ? `  ${title}` : ''}
         </Text>
         <Text style={[styles.watchState, watched ? styles.watchStateWatched : styles.watchStateUnwatched]}>
-          {watched ? `Watched${watchedAt ? ` · ${formatDate(watchedAt)}` : ''}` : 'Not watched'}
+          {watched ? `Watched${watchedAt ? ` · ${formatDate(watchedAt)}` : ''}` : released ? 'Not watched' : 'Not yet released'}
         </Text>
         {canEditNote ? (
           <Pressable style={styles.notePill} onPress={onEditNote} hitSlop={6}>
@@ -63,7 +80,7 @@ export function EpisodeCard({
       </View>
 
       <View style={styles.actionSlot}>
-        {!watched ? (
+        {!watched && released ? (
           <Pressable
             style={({ pressed }) => [styles.actionCircle, pressed && styles.actionPressed]}
             onPress={onMarkWatched}
@@ -73,6 +90,26 @@ export function EpisodeCard({
             accessibilityLabel="Mark episode as watched"
           >
             {isMarking ? <ActivityIndicator size="small" color={colors.accent} /> : <Text style={styles.actionGlyph}>✓</Text>}
+          </Pressable>
+        ) : null}
+        {watched && onUnwatch ? (
+          // Deliberately subtle/muted (not the bright accent used for the
+          // primary "mark watched" circle) — this is a correction action,
+          // not something that should draw the eye or invite a stray tap.
+          // A confirmation dialog gates the actual mutation on top of that.
+          <Pressable
+            style={({ pressed }) => [styles.undoCircle, pressed && styles.actionPressed]}
+            onPress={onUnwatch}
+            disabled={isUnwatching || unwatchDisabled}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Mark episode as unwatched"
+          >
+            {isUnwatching ? (
+              <ActivityIndicator size="small" color={colors.textTertiary} />
+            ) : (
+              <Text style={styles.undoGlyph}>↺</Text>
+            )}
           </Pressable>
         ) : null}
       </View>
@@ -129,4 +166,14 @@ const styles = StyleSheet.create({
   },
   actionPressed: { opacity: 0.6 },
   actionGlyph: { fontSize: 15, fontWeight: '700', color: colors.accent },
+  undoCircle: {
+    width: ACTION_SIZE,
+    height: ACTION_SIZE,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  undoGlyph: { fontSize: 15, fontWeight: '700', color: colors.textTertiary },
 });

@@ -16,6 +16,9 @@ interface Props {
   onEditNote: (episode: EpisodeDetail) => void;
   markingEpisodeId: string | null;
   markDisabled: boolean;
+  onUnwatch: (episode: EpisodeDetail) => void;
+  unwatchingEpisodeId: string | null;
+  unwatchDisabled: boolean;
   // GET /series/:id's SeasonDetail has no id of its own — every episode in
   // it carries seasonId (mirrors EpisodeSummaryDto), and since seasonNumber
   // is unique per series, all episodes here share the same one. Derived
@@ -40,6 +43,9 @@ export function SeasonAccordion({
   markDisabled,
   onMarkAllWatched,
   markingAllSeasonId,
+  onUnwatch,
+  unwatchingEpisodeId,
+  unwatchDisabled,
 }: Props) {
   const progress = useMemo(() => computeSeasonProgress(episodes), [episodes]);
   const seasonId = episodes[0]?.seasonId ?? null;
@@ -63,6 +69,7 @@ export function SeasonAccordion({
               title={episode.title}
               imageUrl={episode.imageUrl}
               seriesTitle={seriesTitle}
+              airDate={episode.airDate}
               watched={episode.watched}
               watchedAt={episode.watchedAt}
               note={episode.note}
@@ -71,6 +78,9 @@ export function SeasonAccordion({
               onEditNote={() => onEditNote(episode)}
               isMarking={markingEpisodeId === episode.id}
               markDisabled={markDisabled}
+              onUnwatch={episode.watched && episode.episodeWatchId ? () => onUnwatch(episode) : undefined}
+              isUnwatching={unwatchingEpisodeId === episode.id}
+              unwatchDisabled={unwatchDisabled}
             />
           ))}
         </View>
