@@ -25,9 +25,12 @@ export function listSeries(params: ListSeriesParams = {}): Promise<SeriesListPag
   return apiClient.get<SeriesListPage>(`/series${qs ? `?${qs}` : ''}`);
 }
 
-// Not called by any screen yet in this pass (no status-change UI built
-// yet) — included so the API surface documented in API_CONTRACT.md is
-// fully represented on the client, ready for a future screen to use.
+// Called from SeriesDetailScreen's status-actions menu (see
+// src/utils/seriesStatusActions.ts) — Put on hold / Drop series / Resume
+// watching all go through this. For a resume request (userStatus:
+// 'WATCHING'), the backend derives the real resulting status — this may
+// come back as CAUGHT_UP or COMPLETED, not necessarily WATCHING (see
+// server/docs/on-hold-dropped-status-todo.md Phase 4).
 export interface UpdateSeriesStatusResponse {
   seriesId: string;
   userStatus: UserSeriesStatus;

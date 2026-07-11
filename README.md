@@ -99,8 +99,10 @@ src/
 
 ## What's deliberately not built yet
 
-- **Swipe-to-watch** (`POST /episodes/:episodeId/watch`) — no mutation UI at all yet, read-only screens only.
 - **Search** — placeholder screen; the backend has no search/add endpoint to call (`GET /series` is a "my library" view, not a catalog browse — see `API_CONTRACT.md`).
-- **Manual status changes** (`PATCH /series/:seriesId/status`) — the endpoint function exists in `api/endpoints/series.ts` and is fully typed, but no screen calls it yet.
-- **Note editing** (`PATCH /episode-watches/:watchId/note`) — `SeriesDetailScreen` surfaces each watched episode's `episodeWatchId` (needed for this), but there's no edit UI yet.
 - Visual polish — layout/styling is intentionally minimal; this pass is about correct data flow end-to-end.
+
+Note: this list predates a batch of features added since (swipe-to-watch, note editing, a Library
+status-browse screen, and — as of `server/docs/on-hold-dropped-status-todo.md` — manual status
+changes via a series-page options menu), so it's narrower than it used to be; not otherwise
+audited/refreshed as part of that task.

@@ -3,12 +3,12 @@ import { ActivityIndicator, Alert, AlertButton, Pressable, StyleSheet, Text, Vie
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '../api/client';
-import { getSeriesDetail, watchSeriesAllReleased } from '../api/endpoints/series';
+import { getSeriesDetail, updateSeriesStatus, watchSeriesAllReleased } from '../api/endpoints/series';
 import { markEpisodeWatched } from '../api/endpoints/episodes';
-import { addNote } from '../api/endpoints/episode-watches';
+import { addNote, unwatchEpisode } from '../api/endpoints/episode-watches';
 import { watchSeasonAll } from '../api/endpoints/seasons';
 import { queryKeys } from '../api/queryKeys';
-import { EpisodeDetail, WatchAllRequest, WatchAllResponse } from '../api/types';
+import { EpisodeDetail, EpisodeSummary, SeriesDetail, UnwatchEpisodeResponse, WatchAllRequest, WatchAllResponse } from '../api/types';
 import { Screen } from '../components/Screen';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
@@ -19,11 +19,12 @@ import { SeasonAccordion } from '../components/SeasonAccordion';
 import { ContinueTrackingCard } from '../components/ContinueTrackingCard';
 import { NoteEditModal } from '../components/NoteEditModal';
 import { RootStackParamList } from '../navigation/types';
-import { colors, spacing, typography } from '../theme/theme';
+import { colors, radii, spacing, typography } from '../theme/theme';
 import { getErrorMessage } from '../utils/errors';
 import { episodeLabel, formatStatusLabel } from '../utils/format';
 import { pickImage } from '../utils/media';
 import { computeSeasonProgress, seasonDisplayTitle } from '../utils/seasonProgress';
+import { getAvailableStatusActions, SeriesStatusAction } from '../utils/seriesStatusActions';
 
 type SeriesDetailRoute = RouteProp<RootStackParamList, 'SeriesDetail'>;
 
@@ -70,6 +71,55 @@ function confirmAsync(title: string, message: string, confirmText: string): Prom
   });
 }
 
+function toEpisodeSummary(detail: EpisodeDetail): EpisodeSummary {
+  return {
+    id: detail.id,
+    seasonId: detail.seasonId,
+    seasonNumber: detail.seasonNumber,
+    episodeNumber: detail.episodeNumber,
+    title: detail.title,
+    overview: detail.overview,
+    airDate: detail.airDate,
+    runtimeMinutes: detail.runtimeMinutes,
+    imageUrl: detail.imageUrl,
+  };
+}
+
+// Applies a successful DELETE /episode-watches/:watchId response to the
+// currently-cached SeriesDetail, in place — used to update the screen
+// immediately (via queryClient.setQueryData) rather than waiting on the
+// background refetch this triggers afterward. Pure/no I/O so it's easy to
+// reason about: seasons/episode arrays are shallow-copied only where
+// something actually changed, so React only re-renders the one episode row
+// (and derived season progress) that changed — the accordion's expanded
+// state lives in separate component state untouched by this, and the
+// season/episode list keeps the same keys, so nothing remounts or
+// collapses.
+function applyUnwatchToSeriesDetail(detail: SeriesDetail, unwatchedEpisodeId: string, result: UnwatchEpisodeResponse): SeriesDetail {
+  const seasons = detail.seasons.map((season) => {
+    if (!season.episodes.some((episode) => episode.id === unwatchedEpisodeId)) return season;
+    return {
+      ...season,
+      episodes: season.episodes.map((episode) =>
+        episode.id === unwatchedEpisodeId
+          ? { ...episode, watched: false, watchedAt: null, note: null, episodeWatchId: null }
+          : episode,
+      ),
+    };
+  });
+
+  const newNextEpisodeDetail = result.newNextEpisodeId
+    ? seasons.flatMap((season) => season.episodes).find((episode) => episode.id === result.newNextEpisodeId)
+    : undefined;
+
+  return {
+    ...detail,
+    seasons,
+    userStatus: result.newUserStatus,
+    nextEpisode: newNextEpisodeDetail ? toEpisodeSummary(newNextEpisodeDetail) : null,
+  };
+}
+
 export function SeriesDetailScreen() {
   const { params } = useRoute<SeriesDetailRoute>();
   const queryClient = useQueryClient();
@@ -78,6 +128,7 @@ export function SeriesDetailScreen() {
   const [editingEpisode, setEditingEpisode] = useState<EpisodeDetail | null>(null);
   const [markingAllSeasonId, setMarkingAllSeasonId] = useState<string | null>(null);
   const [isMarkingSeriesAll, setIsMarkingSeriesAll] = useState(false);
+  const [unwatchingEpisodeId, setUnwatchingEpisodeId] = useState<string | null>(null);
   const hasAutoExpanded = useRef(false);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -108,6 +159,56 @@ export function SeriesDetailScreen() {
       Alert.alert('Could not save note', getErrorMessage(mutationError));
     },
   });
+
+  // Put on hold / Drop series / Resume watching — never touches watch
+  // history, only userStatus (+ nextEpisodeId, which the backend derives/
+  // preserves correctly — see server/docs/on-hold-dropped-status-todo.md).
+  // Patches the cached SeriesDetail in place (same pattern as
+  // applyUnwatchResult below) so the badge and "Continue tracking" card
+  // update immediately, then invalidates Home/Watchlist/Library so those
+  // screens reflect the change without a manual refresh — this series may
+  // now need to appear in or disappear from any of them.
+  const updateStatusMutation = useMutation({
+    mutationFn: (targetStatus: SeriesStatusAction['targetStatus']) => updateSeriesStatus(params.seriesId, targetStatus),
+    onSuccess: (result) => {
+      queryClient.setQueryData<SeriesDetail>(queryKeys.seriesDetail(params.seriesId), (previous) =>
+        previous ? { ...previous, userStatus: result.userStatus, nextEpisode: result.nextEpisode } : previous,
+      );
+      void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail(params.seriesId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.watchlist });
+      // Partial match (no params) — invalidates every Library status-filter
+      // tab, not just whichever one happened to be open last.
+      void queryClient.invalidateQueries({ queryKey: ['series', 'list'] });
+    },
+    onError: (mutationError) => {
+      Alert.alert('Could Not Update Status', getErrorMessage(mutationError));
+    },
+  });
+
+  const runStatusAction = async (action: SeriesStatusAction) => {
+    if (action.requiresConfirmation) {
+      const confirmed = await confirmAsync(action.label, action.confirmationMessage ?? '', action.label);
+      if (!confirmed) return;
+    }
+    updateStatusMutation.mutate(action.targetStatus);
+  };
+
+  // "..." options button — hidden entirely when there's nothing to offer
+  // (WATCHLIST/UNKNOWN, see getAvailableStatusActions). One native Alert
+  // with one button per available action, matching this screen's existing
+  // Alert-based confirm/dry-run patterns rather than introducing a new
+  // menu component.
+  const handleOpenStatusMenu = (currentStatus: SeriesDetail['userStatus']) => {
+    const actions = getAvailableStatusActions(currentStatus);
+    if (actions.length === 0) return;
+
+    const buttons: AlertButton[] = [
+      ...actions.map((action) => ({ text: action.label, onPress: () => void runStatusAction(action) })),
+      { text: 'Cancel', style: 'cancel' as const },
+    ];
+    Alert.alert('Series Options', undefined, buttons, { cancelable: true });
+  };
 
   // The one season auto-expanded on first load: the one with the next
   // episode, else the first with anything left to watch, else the last
@@ -208,6 +309,72 @@ export function SeriesDetailScreen() {
     }
   };
 
+  // Undo/correction action for a watched episode — deliberately gated
+  // behind an explicit confirmation (this is not a swipe/one-tap action,
+  // see EpisodeCard's subtle, muted "↺" affordance) so a stray tap can't
+  // silently unmark progress.
+  const handleUnwatchEpisode = async (episode: EpisodeDetail) => {
+    const watchId = episode.episodeWatchId;
+    if (!watchId) return;
+
+    const confirmed = await confirmAsync(
+      'Mark as unwatched?',
+      'This will remove the watched status from this episode and may move your progress back.',
+      'Mark as unwatched',
+    );
+    if (!confirmed) return;
+
+    setUnwatchingEpisodeId(episode.id);
+    try {
+      const result = await unwatchEpisode(watchId);
+      applyUnwatchResult(episode.id, result);
+    } catch (err) {
+      if (isForceRequiredError(err)) {
+        const forceConfirmed = await confirmAsync(
+          'Extra Data Attached',
+          `${getErrorMessage(err)}\n\nThis episode has extra data attached. Marking it unwatched may remove or detach some data. Continue?`,
+          'Continue',
+        );
+        if (!forceConfirmed) {
+          setUnwatchingEpisodeId(null);
+          return;
+        }
+        try {
+          const result = await unwatchEpisode(watchId, { force: true });
+          applyUnwatchResult(episode.id, result);
+        } catch (forceErr) {
+          // Local state was never touched, so the episode is still shown
+          // watched — no corruption to undo here.
+          Alert.alert('Could Not Mark Unwatched', getErrorMessage(forceErr));
+        }
+      } else {
+        Alert.alert('Could Not Mark Unwatched', getErrorMessage(err));
+      }
+    } finally {
+      setUnwatchingEpisodeId(null);
+    }
+  };
+
+  // Shared success path for both the plain and force=true unwatch calls:
+  // patch the cached SeriesDetail immediately (row flips to unwatched in
+  // place, "Continue tracking" updates if applicable, expanded seasons and
+  // scroll position are untouched since this doesn't remount anything),
+  // surface the DROPPED/PAUSED preservation warning if present, then
+  // reconcile with the server in the background — Home/Watch Next included,
+  // since a series' watchNext membership can change too.
+  const applyUnwatchResult = (episodeId: string, result: UnwatchEpisodeResponse) => {
+    queryClient.setQueryData<SeriesDetail>(queryKeys.seriesDetail(params.seriesId), (previous) =>
+      previous ? applyUnwatchToSeriesDetail(previous, episodeId, result) : previous,
+    );
+
+    if (result.warning) {
+      Alert.alert('Heads Up', result.warning);
+    }
+
+    void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail(params.seriesId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+  };
+
   const isMarkingNextEpisode = data.nextEpisode !== null && markingEpisodeId === data.nextEpisode.id;
 
   return (
@@ -227,6 +394,22 @@ export function SeriesDetailScreen() {
             <StatusBadge status={data.userStatus} />
           </View>
         </View>
+        {getAvailableStatusActions(data.userStatus).length > 0 ? (
+          <Pressable
+            style={({ pressed }) => [styles.optionsButton, pressed && styles.pressed]}
+            onPress={() => handleOpenStatusMenu(data.userStatus)}
+            disabled={updateStatusMutation.isPending}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Series options"
+          >
+            {updateStatusMutation.isPending ? (
+              <ActivityIndicator size="small" color={colors.textSecondary} />
+            ) : (
+              <Text style={styles.optionsGlyph}>⋯</Text>
+            )}
+          </Pressable>
+        ) : null}
       </View>
 
       {data.overview ? <Text style={styles.overview}>{data.overview}</Text> : null}
@@ -277,6 +460,9 @@ export function SeriesDetailScreen() {
               handleMarkSeasonAllWatched(seasonId, seasonDisplayTitle(season.seasonNumber, season.title))
             }
             markingAllSeasonId={markingAllSeasonId}
+            onUnwatch={(episode) => void handleUnwatchEpisode(episode)}
+            unwatchingEpisodeId={unwatchingEpisodeId}
+            unwatchDisabled={unwatchingEpisodeId !== null}
           />
         ))}
       </View>
@@ -311,6 +497,17 @@ const styles = StyleSheet.create({
   headerText: { flex: 1, justifyContent: 'flex-end', gap: spacing.sm, paddingBottom: 2 },
   title: { ...typography.title },
   badgeRow: { flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' },
+  optionsButton: {
+    width: 36,
+    height: 36,
+    borderRadius: radii.full,
+    backgroundColor: colors.surfaceElevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-end',
+  },
+  optionsGlyph: { fontSize: 18, fontWeight: '700', color: colors.textSecondary },
+  pressed: { opacity: 0.6 },
   overview: {
     ...typography.body,
     color: colors.textSecondary,
