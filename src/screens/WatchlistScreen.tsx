@@ -8,14 +8,25 @@ import { queryKeys } from '../api/queryKeys';
 import { Screen } from '../components/Screen';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
+import { SectionHeader } from '../components/SectionHeader';
 import { SeriesCard } from '../components/SeriesCard';
 import { EmptyState } from '../components/EmptyState';
 import { RootStackParamList } from '../navigation/types';
 import { colors } from '../theme/theme';
-import { formatDate } from '../utils/format';
+import { groupWatchlistItems } from '../utils/groupWatchlistItems';
+import { formatAttentionWarningLabel } from '../utils/format';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
+// The Watchlist tab represents the user's ACTIVE, TRUSTWORTHY tracking list
+// (Watching / Caught Up / Watchlist), grouped into three ordered sections —
+// see groupWatchlistItems.ts. GET /watchlist already does the real work
+// (filtering to those three statuses, gating WATCHING/CAUGHT_UP on a
+// confirmed provider match, sorting alphabetically); this screen only
+// partitions the already-correct response into sections and renders them.
+// PAUSED/DROPPED/COMPLETED/UNKNOWN series, and any unconfirmed WATCHING/
+// CAUGHT_UP series, are unaffected — still fully available via the Library
+// tab (and unconfirmed ones also via the Needs Attention inbox).
 export function WatchlistScreen() {
   const navigation = useNavigation<Navigation>();
   const { data, isLoading, isError, error, refetch, isRefetching } = useQuery({
@@ -34,25 +45,30 @@ export function WatchlistScreen() {
   if (isError) return <ErrorState error={error} onRetry={refetch} />;
   if (!data) return <LoadingState />;
 
+  const sections = groupWatchlistItems(data);
+
   return (
     <Screen refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.accent} />}>
-      {data.length === 0 ? (
-        <EmptyState message="Your watchlist is empty. Series you add will show up here." />
+      {sections.length === 0 ? (
+        <EmptyState message="Your active library is empty. Series you're watching, caught up on, or planning to start show up here." />
       ) : (
-        <View>
-          {data.map((item) => (
-            <SeriesCard
-              key={item.id}
-              variant="list"
-              title={item.series.title}
-              posterUrl={item.series.posterUrl}
-              subtitle={`Added ${formatDate(item.addedAt) ?? ''}`}
-              releaseStatus={item.series.releaseStatus}
-              userStatus={item.userStatus}
-              onPress={() => openSeries(item.series.id, item.series.title)}
-            />
-          ))}
-        </View>
+        sections.map((section) => (
+          <View key={section.status}>
+            <SectionHeader title={section.title} />
+            {section.items.map((item) => (
+              <SeriesCard
+                key={item.id}
+                variant="list"
+                title={item.series.title}
+                posterUrl={item.series.posterUrl}
+                releaseStatus={item.series.releaseStatus}
+                userStatus={item.userStatus}
+                warning={item.attentionReasonCode ? formatAttentionWarningLabel(item.attentionReasonCode) : null}
+                onPress={() => openSeries(item.series.id, item.series.title)}
+              />
+            ))}
+          </View>
+        ))
       )}
     </Screen>
   );

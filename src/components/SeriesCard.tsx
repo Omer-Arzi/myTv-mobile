@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { PosterImage } from './PosterImage';
 import { StatusBadge } from './StatusBadge';
-import { colors, spacing, typography } from '../theme/theme';
+import { colors, radii, spacing, typography } from '../theme/theme';
 
 export type SeriesCardVariant = 'rail' | 'list';
 export type SeriesCardSize = 'sm' | 'md' | 'lg';
@@ -12,6 +12,11 @@ interface Props {
   subtitle?: string | null;
   releaseStatus?: string | null;
   userStatus?: string | null;
+  // A short warning label (e.g. "Numbering risk") shown alongside the
+  // status badges — list variant only. Sourced from the same
+  // classifySeriesForAttention reasonCode the Needs Attention inbox uses;
+  // never a second, ad hoc warning classification.
+  warning?: string | null;
   variant?: SeriesCardVariant;
   size?: SeriesCardSize;
   onPress: () => void;
@@ -35,7 +40,13 @@ const LIST_SIZES: Record<SeriesCardSize, { width: number; height: number }> = {
 // horizontal rails, horizontal row for vertical lists); `size` scales the
 // poster within that layout, letting Watch Next read as more prominent
 // than a plain Watchlist row without a different component.
-export function SeriesCard({ title, posterUrl, subtitle, releaseStatus, userStatus, variant = 'rail', size = 'md', onPress }: Props) {
+export function SeriesCard({ title, posterUrl, subtitle, releaseStatus, userStatus, warning, variant = 'rail', size = 'md', onPress }: Props) {
+  // "UNKNOWN" release status just means MyTV hasn't confirmed a provider
+  // match yet — it's not a real broadcast state, and showing it literally
+  // ("Unknown") reads as noise, not information. Simplest honest option:
+  // the badge disappears rather than displaying a placeholder value.
+  const showReleaseBadge = releaseStatus && releaseStatus !== 'UNKNOWN';
+
   if (variant === 'list') {
     const { width, height } = LIST_SIZES[size];
     return (
@@ -51,8 +62,13 @@ export function SeriesCard({ title, posterUrl, subtitle, releaseStatus, userStat
             </Text>
           ) : null}
           <View style={styles.badgeRow}>
-            {releaseStatus ? <StatusBadge status={releaseStatus} /> : null}
+            {showReleaseBadge ? <StatusBadge status={releaseStatus} /> : null}
             {userStatus ? <StatusBadge status={userStatus} /> : null}
+            {warning ? (
+              <View style={styles.warningBadge}>
+                <Text style={styles.warningLabel}>{warning}</Text>
+              </View>
+            ) : null}
           </View>
         </View>
       </Pressable>
@@ -98,4 +114,12 @@ const styles = StyleSheet.create({
   },
   listText: { flex: 1, justifyContent: 'center', gap: 4 },
   badgeRow: { flexDirection: 'row', gap: spacing.xs, marginTop: 2, flexWrap: 'wrap' },
+  warningBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radii.full,
+    backgroundColor: colors.warningSoft,
+    alignSelf: 'flex-start',
+  },
+  warningLabel: { fontSize: 12, fontWeight: '600', color: colors.warning },
 });
