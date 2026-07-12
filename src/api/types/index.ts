@@ -6,3 +6,4 @@ export * from './home';
 export * from './watchlist';
 export * from './watch-all';
 export * from './migration-workbench';
+export * from './search';

@@ -6,6 +6,7 @@ import { MigrationProposalScreen } from '../screens/MigrationProposalScreen';
 import { MigrationHistoryScreen } from '../screens/MigrationHistoryScreen';
 import { MigrationHistoryDetailScreen } from '../screens/MigrationHistoryDetailScreen';
 import { ProviderCandidateSearchScreen } from '../screens/ProviderCandidateSearchScreen';
+import { PossibleMatchComparisonScreen } from '../screens/PossibleMatchComparisonScreen';
 import { RootStackParamList } from './types';
 import { colors } from '../theme/theme';
 
@@ -44,6 +45,11 @@ export function RootNavigator() {
         name="ProviderCandidateSearch"
         component={ProviderCandidateSearchScreen}
         options={({ route }) => ({ title: route.params.title ?? 'Find Provider', headerBackTitle: 'Back' })}
+      />
+      <Stack.Screen
+        name="PossibleMatchComparison"
+        component={PossibleMatchComparisonScreen}
+        options={{ title: 'Possible Match', presentation: 'modal' }}
       />
     </Stack.Navigator>
   );

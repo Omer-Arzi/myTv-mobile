@@ -13,4 +13,5 @@ export const queryKeys = {
   providerCandidates: (seriesId: string) => ['migration-workbench', seriesId, 'candidates'] as const,
   migrationHistory: ['migration-workbench', 'history'] as const,
   migrationHistoryDetail: (migrationId: string) => ['migration-workbench', 'history', migrationId] as const,
+  search: (query: string) => ['search', query] as const,
 };
