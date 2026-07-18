@@ -51,3 +51,16 @@ const ATTENTION_WARNING_LABELS: Record<string, string> = {
 export function formatAttentionWarningLabel(reasonCode: string): string {
   return ATTENTION_WARNING_LABELS[reasonCode] ?? 'Needs review';
 }
+
+// The ONE place a ProviderCandidate.confidenceScore (canonical 0..1 — see
+// api/types/migration-workbench.ts) is ever converted to a percentage for
+// display. Introduced alongside the fix for a real bug where a candidate's
+// raw 0..1 confidence was displayed correctly as "80%" but then sent
+// back to the server AS "80" (not 0.8) on confirm — the server's 0..1
+// validation rejected it with "confidence must not be greater than 1".
+// Never do the *100/Math.round formatting inline at a call site again;
+// always go through this function so display and the value sent back to
+// the server can never drift apart.
+export function formatConfidencePercent(confidenceScore: number): string {
+  return `${Math.round(confidenceScore * 100)}%`;
+}

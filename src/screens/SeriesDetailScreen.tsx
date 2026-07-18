@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, AlertButton, Pressable, StyleSheet, Text, View } from 'react-native';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError } from '../api/client';
 import { getSeriesDetail, updateSeriesStatus, watchSeriesAllReleased } from '../api/endpoints/series';
 import { markEpisodeWatched } from '../api/endpoints/episodes';
 import { addNote, unwatchEpisode } from '../api/endpoints/episode-watches';
@@ -20,7 +19,8 @@ import { ContinueTrackingCard } from '../components/ContinueTrackingCard';
 import { NoteEditModal } from '../components/NoteEditModal';
 import { RootStackParamList } from '../navigation/types';
 import { colors, radii, spacing, typography } from '../theme/theme';
-import { getErrorMessage } from '../utils/errors';
+import { getErrorMessage, isForceRequiredError } from '../utils/errors';
+import { confirmAsync } from '../utils/confirmAsync';
 import { episodeLabel, formatStatusLabel } from '../utils/format';
 import { pickImage } from '../utils/media';
 import { computeSeasonProgress, seasonDisplayTitle } from '../utils/seasonProgress';
@@ -31,15 +31,6 @@ type SeriesDetailRoute = RouteProp<RootStackParamList, 'SeriesDetail'>;
 const BACKDROP_HEIGHT = 200;
 const POSTER_WIDTH = 108;
 const POSTER_HEIGHT = 162;
-
-// The watch-all endpoints reject with 400 when userStatus is DROPPED/PAUSED
-// and force wasn't set — see server/src/common/watch-all-logic.ts's
-// checkWatchAllAllowed, which is the only 400 either endpoint documents.
-// Matching on this substring (rather than just "any 400") keeps this from
-// misfiring on some unrelated future validation error.
-function isForceRequiredError(err: unknown): boolean {
-  return err instanceof ApiError && err.status === 400 && err.message.includes('force=true');
-}
 
 function buildDryRunMessage(result: WatchAllResponse): string {
   const lines = [
@@ -56,19 +47,6 @@ function buildDryRunMessage(result: WatchAllResponse): string {
     lines.push(`Status: ${formatStatusLabel(result.previousUserStatus)} → ${formatStatusLabel(result.newUserStatus)}`);
   }
   return lines.join('\n');
-}
-
-// Promise-wraps Alert.alert's callback-based API so the multi-step
-// dry-run -> confirm -> apply -> (maybe) force-retry flow below can just be
-// written as sequential async/await instead of nested callbacks.
-function confirmAsync(title: string, message: string, confirmText: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const buttons: AlertButton[] = [
-      { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-      { text: confirmText, onPress: () => resolve(true) },
-    ];
-    Alert.alert(title, message, buttons, { cancelable: true, onDismiss: () => resolve(false) });
-  });
 }
 
 function toEpisodeSummary(detail: EpisodeDetail): EpisodeSummary {
@@ -142,6 +120,12 @@ export function SeriesDetailScreen() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail(params.seriesId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      // Partial match — the Upcoming timeline's query key includes a
+      // dynamic "today" anchor this screen doesn't know, so this
+      // invalidates every currently-cached Upcoming query regardless of
+      // anchor. See docs/upcoming-timeline-todo.md "Refresh and live
+      // consistency".
+      void queryClient.invalidateQueries({ queryKey: ['upcoming'] });
     },
     onError: (mutationError) => {
       Alert.alert('Could not mark as watched', getErrorMessage(mutationError));
@@ -180,6 +164,10 @@ export function SeriesDetailScreen() {
       // Partial match (no params) — invalidates every Library status-filter
       // tab, not just whichever one happened to be open last.
       void queryClient.invalidateQueries({ queryKey: ['series', 'list'] });
+      // A status change (e.g. WATCHLIST -> WATCHING, or DROPPED -> WATCHING)
+      // can add or remove this series' episodes from Upcoming's eligibility
+      // set — see upcoming-query-helpers.ts's UPCOMING_ELIGIBLE_STATUSES.
+      void queryClient.invalidateQueries({ queryKey: ['upcoming'] });
     },
     onError: (mutationError) => {
       Alert.alert('Could Not Update Status', getErrorMessage(mutationError));
@@ -270,6 +258,7 @@ export function SeriesDetailScreen() {
       await call({ dryRun: false });
       void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail(params.seriesId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+      void queryClient.invalidateQueries({ queryKey: ['upcoming'] });
       Alert.alert('Done', `Marked ${preview.watchesCreated} episode${preview.watchesCreated === 1 ? '' : 's'} as watched.`);
     } catch (err) {
       if (isForceRequiredError(err)) {
@@ -280,6 +269,7 @@ export function SeriesDetailScreen() {
           const applied = await call({ dryRun: false, force: true });
           void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail(params.seriesId) });
           void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+          void queryClient.invalidateQueries({ queryKey: ['upcoming'] });
           Alert.alert('Done', `Marked ${applied.watchesCreated} episode${applied.watchesCreated === 1 ? '' : 's'} as watched.`);
         } catch (forceErr) {
           Alert.alert('Could Not Mark Watched', getErrorMessage(forceErr));
@@ -373,6 +363,7 @@ export function SeriesDetailScreen() {
 
     void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail(params.seriesId) });
     void queryClient.invalidateQueries({ queryKey: queryKeys.home });
+    void queryClient.invalidateQueries({ queryKey: ['upcoming'] });
   };
 
   const isMarkingNextEpisode = data.nextEpisode !== null && markingEpisodeId === data.nextEpisode.id;

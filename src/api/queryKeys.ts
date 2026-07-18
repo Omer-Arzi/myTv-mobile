@@ -14,4 +14,9 @@ export const queryKeys = {
   migrationHistory: ['migration-workbench', 'history'] as const,
   migrationHistoryDetail: (migrationId: string) => ['migration-workbench', 'history', migrationId] as const,
   search: (query: string) => ['search', query] as const,
+  // Keyed on the local "today" the timeline was anchored to at mount time
+  // (not on every from/to window) — useInfiniteQuery owns paging within
+  // this one key via getPreviousPageParam/getNextPageParam. See
+  // UpcomingTimeline.tsx / src/utils/upcomingGrouping.ts.
+  upcoming: (anchorDateKey: string) => ['upcoming', anchorDateKey] as const,
 };
