@@ -13,6 +13,7 @@ import { SectionHeader } from '../components/SectionHeader';
 import { PosterImage } from '../components/PosterImage';
 import { RootStackParamList } from '../navigation/types';
 import { colors, radii, spacing, typography } from '../theme/theme';
+import { formatConfidencePercent } from '../utils/format';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type CandidatesRoute = RouteProp<RootStackParamList, 'ProviderCandidateSearch'>;
@@ -90,7 +91,7 @@ export function ProviderCandidateSearchScreen() {
               <View style={styles.candidateText}>
                 <Text style={typography.subheading}>{candidate.title}{candidate.year ? ` (${candidate.year})` : ''}</Text>
                 <Text style={styles.rowLabel}>
-                  {candidate.seasonCount ?? '?'} season(s), {candidate.episodeCount ?? '?'} episode(s) · {Math.round(candidate.confidenceScore)}% confidence
+                  {candidate.seasonCount ?? '?'} season(s), {candidate.episodeCount ?? '?'} episode(s) · {formatConfidencePercent(candidate.confidenceScore)} confidence
                 </Text>
                 <Text style={styles.explanation}>{candidate.explanation}</Text>
                 {candidate.warnings.map((w, i) => (

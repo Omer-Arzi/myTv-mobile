@@ -37,6 +37,24 @@ export interface MigrationCurrentState {
   userStatus: UserSeriesStatus;
 }
 
+// Structured classification of why a series is (or is not) confirmable —
+// render a short, fixed summary per code as the PRIMARY UI text. `reason`
+// (the raw diagnostic, sometimes very long) is secondary/collapsible detail,
+// never the primary explanation.
+export type ProposalReasonCode =
+  | 'NO_CONFIRMED_IDENTITY'
+  | 'ALTERNATE_TITLE'
+  | 'IDENTITY_CONFLICT'
+  | 'PROVIDER_CATALOG_INCOMPLETE'
+  | 'SEASON_STRUCTURE_MISMATCH'
+  | 'WATCH_HISTORY_UNMAPPED'
+  | 'ALREADY_MIGRATED'
+  | 'SAFE_TO_APPLY';
+
+// Exactly which actions the UI should offer right now — use this instead
+// of inferring actionability from `eligible` alone.
+export type ProposalAction = 'CONFIRM_MIGRATION' | 'REVIEW_SEASON_MISMATCH' | 'FIND_NEW_PROVIDER';
+
 // GET /migration-workbench/:seriesId/proposal — always a fresh live
 // provider fetch, never cached. eligible is false (with current/proposal
 // both null) when there's no confirmed provider decision on file yet —
@@ -46,6 +64,8 @@ export interface MigrationProposal {
   title: string;
   eligible: boolean;
   category: MigrationWorkbenchCategory;
+  reasonCode: ProposalReasonCode;
+  availableActions: ProposalAction[];
   reason: string;
   current: MigrationCurrentState | null;
   proposal: MigrationProposalSummary | null;
@@ -144,6 +164,11 @@ export interface ProviderCandidate {
   posterUrl: string | null;
   episodeCount: number | null;
   seasonCount: number | null;
+  // Normalized 0..1 — the canonical confidence representation across this
+  // whole app (candidates, POST :seriesId/confirm-identity, and persisted
+  // decisions all use this same 0..1 scale). Use formatConfidencePercent
+  // (utils/format.ts) for display — never pass this value straight to a
+  // "%" label, and never send it back to the server multiplied by 100.
   confidenceScore: number;
   titleMatchType: string;
   yearMatchType: string;

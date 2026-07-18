@@ -30,6 +30,14 @@ export function confirmProviderIdentity(seriesId: string, body: { provider: stri
   return apiClient.post(`/migration-workbench/${seriesId}/confirm-identity`, body);
 }
 
+// A second, separate action from confirmProviderIdentity — explicit human
+// review/approval of a season-structure mismatch (e.g. an absolute-numbering
+// collapse). Never implied by identity confirmation. Re-fetch the proposal
+// after this succeeds to see the resulting (now-eligible) state.
+export function reviewSeasonShrink(seriesId: string): Promise<{ seriesId: string; reviewed: true }> {
+  return apiClient.post(`/migration-workbench/${seriesId}/review-season-shrink`);
+}
+
 export function getMigrationHistory(): Promise<MigrationHistoryItem[]> {
   return apiClient.get<MigrationHistoryItem[]>('/migration-workbench/history');
 }
