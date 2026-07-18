@@ -4,7 +4,7 @@ React Native client for MyTv, built against the backend documented in `../server
 
 ## Prerequisites
 
-- The backend running locally (`cd ../server && npm run start:dev`, defaults to `http://localhost:3000`)
+- The backend running locally (`cd ../server && npm run start:dev`, defaults to `http://localhost:3001`)
 - [Expo Go](https://expo.dev/go) on a physical device, or an iOS Simulator / Android emulator
 
 ## Setup
@@ -23,15 +23,15 @@ Set via `EXPO_PUBLIC_API_BASE_URL` in `.env` (Expo inlines `EXPO_PUBLIC_*` vars 
 
 | Target | URL |
 | --- | --- |
-| iOS Simulator | `http://localhost:3000` (default — Simulator shares your Mac's network) |
-| Physical device (Expo Go) | `http://<your-Mac's-LAN-IP>:3000` — find it with `ipconfig getifaddr en0` |
-| Android emulator | `http://10.0.2.2:3000` |
+| iOS Simulator | `http://localhost:3001` (default — Simulator shares your Mac's network) |
+| Physical device (Expo Go) | `http://<your-Mac's-LAN-IP>:3001` — find it with `ipconfig getifaddr en0` |
+| Android emulator | `http://10.0.2.2:3001` |
 
 ## Troubleshooting: "Can't reach the server"
 
 If the app loads in Expo Go but every screen shows a connection error, it's almost always one of these:
 
-1. **Backend isn't running.** `cd ../server && npm run start:dev` and confirm it's listening on port 3000.
+1. **Backend isn't running.** `cd ../server && npm run start:dev` and confirm it's listening on port 3001.
 2. **`EXPO_PUBLIC_API_BASE_URL` is wrong for your setup** — check `.env` against the table above (Simulator vs physical device vs Android emulator each need a different value).
 3. **Testing on a physical iPhone with `localhost` in `.env`.** On a real device, `localhost` means the phone itself, not your Mac — this is the most common cause. Get your Mac's LAN IP and use that instead:
 
@@ -42,7 +42,7 @@ If the app loads in Expo Go but every screen shows a connection error, it's almo
    Update `.env`:
 
    ```
-   EXPO_PUBLIC_API_BASE_URL=http://<the-ip-from-above>:3000
+   EXPO_PUBLIC_API_BASE_URL=http://<the-ip-from-above>:3001
    ```
 
    Your phone and Mac must be on the same Wi-Fi network for this to work.
