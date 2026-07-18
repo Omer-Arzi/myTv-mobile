@@ -37,10 +37,21 @@ export interface StaleSeriesItem {
   userStatus: UserSeriesStatus;
 }
 
+// Mirrors server/src/modules/me/dto/haven-started-yet-item.dto.ts — a
+// derived Home section, not a persistent status: WATCHLIST, zero watched
+// episodes, at least one released regular (season > 0) episode, and a
+// confirmed provider mapping. Sorted newest-released-first by the server.
+export interface HavenStartedYetItem {
+  series: SeriesSummary;
+  latestReleasedRegularEpisode: EpisodeSummary;
+  releasedRegularEpisodeCount: number;
+}
+
 // Mirrors server/src/modules/home/dto/home-response.dto.ts — the response
 // of GET /home.
 export interface HomeResponse {
   recentlyWatched: RecentlyWatchedItem[];
   watchNext: WatchNextItem[];
   staleSeries: StaleSeriesItem[];
+  haventStartedYet: HavenStartedYetItem[];
 }

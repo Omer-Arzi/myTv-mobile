@@ -3,6 +3,7 @@ import { ActivityIndicator, Animated, Dimensions, PanResponder, Pressable, Style
 import { PosterImage } from './PosterImage';
 import { colors, radii, spacing } from '../theme/theme';
 import { getRemainingEpisodesIndicator } from '../utils/remainingEpisodesIndicator';
+import { ReleaseStatus } from '../api/types/common';
 
 interface Props {
   seriesTitle: string;
@@ -11,9 +12,15 @@ interface Props {
   episodeNumber: number;
   episodeTitle: string | null;
   // How many known catalog episodes come after this episode — drives the
-  // small "+N" / "Final episode" indicator beside the SxxEyy label. Absent
-  // or null renders neither (see getRemainingEpisodesIndicator).
+  // small "+N" / "Final episode"/"Latest episode" indicator beside the
+  // SxxEyy label. Absent or null renders neither (see
+  // getRemainingEpisodesIndicator).
   remainingEpisodesAfterNext?: number | null;
+  // Decides "Final episode" (show confirmed over) vs "Latest episode"
+  // (still releasing/not yet confirmed) when remainingEpisodesAfterNext is
+  // 0 — see getRemainingEpisodesIndicator. Defaults to 'UNKNOWN' (never
+  // claims "final" without confirmation) when omitted.
+  releaseStatus?: ReleaseStatus;
   onPress: () => void;
   onMarkWatched: () => void;
   isMarking?: boolean;
@@ -101,6 +108,7 @@ export function WatchNextCard({
   episodeNumber,
   episodeTitle,
   remainingEpisodesAfterNext,
+  releaseStatus,
   onPress,
   onMarkWatched,
   isMarking = false,
@@ -108,7 +116,7 @@ export function WatchNextCard({
   isWatched = false,
   onSwipeLockChange,
 }: Props) {
-  const remainingIndicator = getRemainingEpisodesIndicator(remainingEpisodesAfterNext);
+  const remainingIndicator = getRemainingEpisodesIndicator(remainingEpisodesAfterNext, releaseStatus);
   const translateX = useRef(new Animated.Value(0)).current;
 
   // PanResponder is created once; callbacks read from this ref so they
@@ -272,19 +280,34 @@ export function WatchNextCard({
   );
 }
 
+// The two distinct "nothing left to watch right now" outcomes a mark-watched
+// can produce — see HomeScreen's post-watch reconciliation. Never collapsed
+// into one ambiguous label: a still-airing show reading "no more episodes"
+// would wrongly imply it had ended.
+export type WatchNextCompletionOutcome = 'CAUGHT_UP' | 'COMPLETED';
+
 interface CaughtUpCardProps {
   seriesTitle: string;
   imageUrl: string | null;
+  outcome: WatchNextCompletionOutcome;
   onPress: () => void;
 }
 
-// Rendered in a Watch Next slot once its series has no next episode left
-// after a mark-watched (background refetch came back with the series gone
-// from watchNext entirely). Same footprint as WatchNextCard — same slot,
-// same height — but permanently non-actionable: no swipe, no mark button,
-// just a "caught up" badge until the next explicit refresh/remount decides
-// whether to drop the slot for real.
-export function CaughtUpCard({ seriesTitle, imageUrl, onPress }: CaughtUpCardProps) {
+const COMPLETION_COPY: Record<WatchNextCompletionOutcome, { badge: string; body: string }> = {
+  CAUGHT_UP: { badge: 'Caught up', body: "You're all caught up" },
+  COMPLETED: { badge: 'Completed', body: 'Series completed' },
+};
+
+// Rendered in a Watch Next slot for the brief success window after a
+// mark-watched leaves the series with no next episode (see HomeScreen's
+// completionState + scheduled removal) — a few hundred ms of this subtle
+// success treatment (green badge/check, same footprint as WatchNextCard),
+// then the slot is removed from the list entirely. Never a permanent
+// placeholder: unlike an earlier version of this component, staying in
+// this state indefinitely was the bug (the item only ever disappeared on a
+// manual refresh) — see the fix's investigation notes.
+export function CaughtUpCard({ seriesTitle, imageUrl, outcome, onPress }: CaughtUpCardProps) {
+  const copy = COMPLETION_COPY[outcome];
   return (
     <View style={styles.swipeContainer}>
       <Pressable style={({ pressed }) => [styles.card, styles.cardWatched, pressed && styles.pressed]} onPress={onPress}>
@@ -298,10 +321,10 @@ export function CaughtUpCard({ seriesTitle, imageUrl, onPress }: CaughtUpCardPro
               </Text>
             </View>
             <View style={styles.watchedBadge}>
-              <Text style={styles.watchedBadgeText}>Caught up</Text>
+              <Text style={styles.watchedBadgeText}>{copy.badge}</Text>
             </View>
           </View>
-          <Text style={styles.episodeTitle}>No new episodes yet</Text>
+          <Text style={styles.episodeTitle}>{copy.body}</Text>
         </View>
 
         <View style={[styles.actionCircle, styles.actionCircleWatched]}>

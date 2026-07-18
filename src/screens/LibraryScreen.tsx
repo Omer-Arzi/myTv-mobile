@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery } from '@tanstack/react-query';
 import { listSeries } from '../api/endpoints/series';
@@ -34,6 +34,11 @@ const PAGE_LIMIT = 50;
 
 export function LibraryScreen() {
   const navigation = useNavigation<Navigation>();
+  // Re-selecting the active tab scrolls the main (vertical) list to top —
+  // deliberately NOT the horizontal status-filter row below, which is a
+  // separate ScrollView. See HomeScreen for the shared rationale.
+  const scrollRef = useRef<ScrollView>(null);
+  useScrollToTop(scrollRef);
   const [status, setStatus] = useState<UserSeriesStatus>('CAUGHT_UP');
 
   const params = { status, limit: PAGE_LIMIT };
@@ -55,7 +60,7 @@ export function LibraryScreen() {
   const openNeedsAttention = useCallback(() => navigation.navigate('NeedsAttention'), [navigation]);
 
   return (
-    <Screen refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.accent} />}>
+    <Screen ref={scrollRef} refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.accent} />}>
       {needsAttentionItems && needsAttentionItems.length > 0 ? (
         <Pressable style={({ pressed }) => [styles.attentionBanner, pressed && styles.attentionBannerPressed]} onPress={openNeedsAttention}>
           <Text style={styles.attentionBannerText}>⚠ Needs Attention ({needsAttentionItems.length})</Text>

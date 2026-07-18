@@ -8,8 +8,17 @@ export interface MarkWatchedResponse {
   watch: EpisodeWatch;
   series: SeriesSummary;
   nextEpisode: EpisodeSummary | null;
+  // True whenever there was no next episode found (covers both CAUGHT_UP
+  // and COMPLETED userStatus) — kept for backward compatibility. Prefer
+  // userStatus for the precise CAUGHT_UP-vs-COMPLETED distinction (see
+  // HomeScreen's mark-watched handling).
   seriesCompleted: boolean;
   userStatus: UserSeriesStatus;
+  // Same field Watch Next items carry (WatchNextItem.remainingEpisodesAfterNext)
+  // — included so a Watch Next card can update its "+N" indicator in place
+  // from this response alone, without a follow-up request. Null when
+  // nextEpisode is null, or when the server couldn't reliably determine it.
+  remainingEpisodesAfterNext: number | null;
 }
 
 // Mirrors server/src/modules/episodes/dto/unwatch-episode-response.dto.ts —

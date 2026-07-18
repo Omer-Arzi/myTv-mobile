@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, Ref, forwardRef } from 'react';
 import { RefreshControlProps, ScrollView, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { SafeAreaView, Edge } from 'react-native-safe-area-context';
 import { colors, spacing } from '../theme/theme';
@@ -18,15 +18,16 @@ interface Props {
 
 // The one place screen background/safe-area handling lives — every screen
 // wraps its content in this instead of repeating SafeAreaView/ScrollView
-// boilerplate with its own background color.
-export function Screen({
-  children,
-  scroll = true,
-  refreshControl,
-  contentContainerStyle,
-  edges = ['top', 'bottom'],
-  scrollEnabled = true,
-}: Props) {
+// boilerplate with its own background color. Forwards its ref to the
+// underlying ScrollView (a no-op when scroll=false, since there's nothing
+// to scroll) so a tab-root screen can hand that ref to
+// @react-navigation/native's useScrollToTop — see HomeScreen/WatchlistScreen/
+// LibraryScreen for the actual wiring; this component only needs to expose
+// the ref, not know anything about tab-press behavior itself.
+export const Screen = forwardRef(function Screen(
+  { children, scroll = true, refreshControl, contentContainerStyle, edges = ['top', 'bottom'], scrollEnabled = true }: Props,
+  ref: Ref<ScrollView>,
+) {
   if (!scroll) {
     return (
       <SafeAreaView style={styles.container} edges={edges}>
@@ -38,6 +39,7 @@ export function Screen({
   return (
     <SafeAreaView style={styles.container} edges={edges}>
       <ScrollView
+        ref={ref}
         style={styles.container}
         contentContainerStyle={[styles.scrollContent, contentContainerStyle]}
         refreshControl={refreshControl}
@@ -48,7 +50,7 @@ export function Screen({
       </ScrollView>
     </SafeAreaView>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },

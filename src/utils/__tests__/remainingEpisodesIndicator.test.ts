@@ -29,11 +29,32 @@ describe('getRemainingEpisodesIndicator', () => {
     expect(result?.text).toBe(`${LRI}+87${PDI}`);
   });
 
-  it('shows "Final episode" (not "+0") when remaining count is 0', () => {
-    const result = getRemainingEpisodesIndicator(0);
+  it('shows "Final episode" (not "+0") when remaining count is 0 and the show is confirmed ENDED', () => {
+    const result = getRemainingEpisodesIndicator(0, 'ENDED');
     expect(result).toEqual({ text: 'Final episode', isFinalEpisode: true });
     expect(result?.text).not.toContain('0');
     expect(result?.text).not.toContain('+');
+  });
+
+  it('shows "Final episode" when remaining count is 0 and the show is confirmed CANCELLED', () => {
+    expect(getRemainingEpisodesIndicator(0, 'CANCELLED')).toEqual({ text: 'Final episode', isFinalEpisode: true });
+  });
+
+  it('shows "Latest episode" (not "Final episode") when remaining count is 0 but the show is still RETURNING — more episodes may simply not be out yet', () => {
+    const result = getRemainingEpisodesIndicator(0, 'RETURNING');
+    expect(result).toEqual({ text: 'Latest episode', isFinalEpisode: false });
+  });
+
+  it('shows "Latest episode" for IN_PRODUCTION', () => {
+    expect(getRemainingEpisodesIndicator(0, 'IN_PRODUCTION')).toEqual({ text: 'Latest episode', isFinalEpisode: false });
+  });
+
+  it('shows "Latest episode" for UNKNOWN — never claims "final" without confirmation', () => {
+    expect(getRemainingEpisodesIndicator(0, 'UNKNOWN')).toEqual({ text: 'Latest episode', isFinalEpisode: false });
+  });
+
+  it('defaults to "Latest episode" (the conservative reading) when releaseStatus is omitted entirely', () => {
+    expect(getRemainingEpisodesIndicator(0)).toEqual({ text: 'Latest episode', isFinalEpisode: false });
   });
 
   it('renders nothing when there is no known next episode (undefined)', () => {

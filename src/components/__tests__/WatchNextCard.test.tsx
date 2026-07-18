@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react-native';
-import { WatchNextCard } from '../WatchNextCard';
+import { WatchNextCard, CaughtUpCard } from '../WatchNextCard';
 
 const LRI = '⁦';
 const PDI = '⁩';
@@ -48,14 +48,23 @@ describe('WatchNextCard — remaining episodes indicator', () => {
     expect(raw).not.toContain('87+');
   });
 
-  it('shows "Final episode" (never "+0") when this is the final known episode', async () => {
+  it('shows "Final episode" (never "+0") when this is the final known episode of a confirmed-ended show', async () => {
     const { getByText, queryByText } = await render(
-      <WatchNextCard {...baseProps} seasonNumber={4} episodeNumber={10} remainingEpisodesAfterNext={0} />,
+      <WatchNextCard {...baseProps} seasonNumber={4} episodeNumber={10} remainingEpisodesAfterNext={0} releaseStatus="ENDED" />,
     );
     expect(getByText('S4E10')).toBeTruthy();
     expect(getByText('Final episode')).toBeTruthy();
     expect(queryByText(`${LRI}+0${PDI}`)).toBeNull();
     expect(queryByText('0')).toBeNull();
+  });
+
+  it('shows "Latest episode" (never "Final episode") when nothing is queued but the show is still RETURNING', async () => {
+    const { getByText, queryByText } = await render(
+      <WatchNextCard {...baseProps} seasonNumber={4} episodeNumber={10} remainingEpisodesAfterNext={0} releaseStatus="RETURNING" />,
+    );
+    expect(getByText('S4E10')).toBeTruthy();
+    expect(getByText('Latest episode')).toBeTruthy();
+    expect(queryByText('Final episode')).toBeNull();
   });
 
   it('renders neither the count nor the final-episode label when remainingEpisodesAfterNext is not provided', async () => {
@@ -77,5 +86,31 @@ describe('WatchNextCard — remaining episodes indicator', () => {
     expect(getByText('Doctor Who')).toBeTruthy();
     expect(getByText('Utopia')).toBeTruthy();
     expect(getByLabelText('Mark episode as watched')).toBeTruthy();
+  });
+});
+
+describe('CaughtUpCard — CAUGHT_UP vs COMPLETED copy', () => {
+  const caughtUpCardProps = { seriesTitle: 'Doctor Who', imageUrl: null, onPress: () => {} };
+
+  it('shows "You\'re all caught up" / "Caught up" for a still-airing show with no next episode yet — never implies the series ended', async () => {
+    const { getByText, queryByText } = await render(<CaughtUpCard {...caughtUpCardProps} outcome="CAUGHT_UP" />);
+    expect(getByText("You're all caught up")).toBeTruthy();
+    expect(getByText('Caught up')).toBeTruthy();
+    expect(queryByText('Series completed')).toBeNull();
+    expect(queryByText('Completed')).toBeNull();
+  });
+
+  it('shows "Series completed" / "Completed" for a confirmed-ended/cancelled show with no next episode', async () => {
+    const { getByText, queryByText } = await render(<CaughtUpCard {...caughtUpCardProps} outcome="COMPLETED" />);
+    expect(getByText('Series completed')).toBeTruthy();
+    expect(getByText('Completed')).toBeTruthy();
+    expect(queryByText("You're all caught up")).toBeNull();
+  });
+
+  it('never renders the ambiguous "No more episodes" phrasing for either outcome', async () => {
+    const caughtUp = await render(<CaughtUpCard {...caughtUpCardProps} outcome="CAUGHT_UP" />);
+    const completed = await render(<CaughtUpCard {...caughtUpCardProps} outcome="COMPLETED" />);
+    expect(caughtUp.queryByText(/no more episodes/i)).toBeNull();
+    expect(completed.queryByText(/no more episodes/i)).toBeNull();
   });
 });

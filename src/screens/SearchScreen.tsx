@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { search as searchApi, addSearchResult } from '../api/endpoints/search';
@@ -31,6 +31,14 @@ const DEBOUNCE_MS = 300;
 export function SearchScreen() {
   const navigation = useNavigation<Navigation>();
   const queryClient = useQueryClient();
+
+  // Re-selecting the active tab scrolls the results SectionList to top —
+  // see HomeScreen for the shared rationale. useScrollToTop no-ops safely
+  // whenever ref.current is null, which is exactly the state whenever the
+  // SectionList itself isn't mounted (empty query, no results, loading) —
+  // see the conditional render below.
+  const sectionListRef = useRef<SectionList<SeriesSearchResult>>(null);
+  useScrollToTop(sectionListRef);
 
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -249,6 +257,7 @@ export function SearchScreen() {
             <NoResultsView />
           ) : (
             <SectionList
+              ref={sectionListRef}
               sections={sections}
               keyExtractor={(item) => item.resultKey}
               renderItem={renderResult}
