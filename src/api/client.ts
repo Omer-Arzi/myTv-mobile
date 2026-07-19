@@ -1,8 +1,12 @@
 // Minimal typed fetch wrapper for the MyTv backend (API_CONTRACT.md in the
-// server repo is the source of truth for these shapes). No auth yet — every
-// request is implicitly treated as the same dev user by the backend.
+// server repo is the source of truth for these shapes). Every request is
+// implicitly treated as the same dev user by the backend (single-user app)
+// — deployments that set APP_PASSWORD additionally require the session
+// cookie from POST /auth/login, which `credentials: 'include'` below
+// carries automatically once set (see server/docs/auth.md).
 
 import { API_BASE_URL } from './config';
+import { setAuthState } from './authState';
 
 // Matches the Nest validation/HTTP-exception error shape documented in
 // API_CONTRACT.md's "Error shape" section: { statusCode, message, error }
@@ -53,6 +57,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
       headers: { 'Content-Type': 'application/json', ...init?.headers },
       signal: timeoutController.signal,
+      // Carries the session cookie cross-origin (the mobile PWA and the
+      // API are on different Railway subdomains) — a no-op locally, where
+      // no APP_PASSWORD means the server never checks for it at all.
+      credentials: 'include',
     });
   } catch (err) {
     // Network failure (backend unreachable, wrong API_BASE_URL, offline,
@@ -65,6 +73,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
+    // Any 401 — not just from the initial GET /auth/status check AuthGate
+    // makes on launch, but a session that expires mid-use on any later
+    // request too — kicks the whole app back to the login screen.
+    if (response.status === 401) setAuthState(false);
+
     let body: ApiErrorBody | undefined;
     try {
       body = (await response.json()) as ApiErrorBody;
