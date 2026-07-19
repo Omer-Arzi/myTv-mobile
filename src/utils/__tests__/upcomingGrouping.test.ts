@@ -6,6 +6,7 @@ import {
   canRetryScrollToToday,
   compareUpcomingItemsWithinDay,
   daysBetweenLocalDateKeys,
+  findAnchorSectionIndex,
   findTodaySectionIndex,
   formatDaysUntil,
   formatSectionTitle,
@@ -14,9 +15,14 @@ import {
   getNextUpcomingWindow,
   getPreviousUpcomingWindow,
   getSectionKindForOffset,
+  isScrolledAwayFromEnd,
+  isScrolledAwayFromStart,
+  MAX_AUTO_LOAD_PAGES_SINCE_RESET,
   patchUpcomingItemInPages,
   resolveEffectiveLocalDateKey,
+  SCROLL_RESET_DISTANCE_PX,
   shouldPerformInitialAnchor,
+  UpcomingRow,
   UpcomingSection,
 } from '../upcomingGrouping';
 
@@ -309,6 +315,58 @@ describe('findTodaySectionIndex', () => {
   });
 });
 
+// The actual scroll target for both the automatic entry anchor and the
+// "jump to Today" tab-reselect gesture — skips an empty Today (no
+// releases) forward to the next day (or the aggregate "Later" section)
+// that actually has something, rather than landing on a blank "Nothing
+// releasing today" placeholder.
+describe('findAnchorSectionIndex', () => {
+  function makeSection(overrides: Partial<UpcomingSection> = {}): UpcomingSection {
+    return { key: 'k', kind: 'today', title: 'Today', data: [], ...overrides };
+  }
+  function itemRow(key: string): UpcomingRow {
+    return { type: 'item', key, item: makeItem({ episodeId: key }), dayOffset: 0 };
+  }
+  function emptyRow(key: string): UpcomingRow {
+    return { type: 'empty', key, message: 'Nothing releasing today' };
+  }
+
+  it('targets Today directly when it has releases', () => {
+    const sections = [
+      makeSection({ key: 'yesterday', kind: 'yesterday', data: [itemRow('y1')] }),
+      makeSection({ key: 'today', kind: 'today', data: [itemRow('t1')] }),
+      makeSection({ key: 'tomorrow', kind: 'tomorrow', data: [itemRow('tm1')] }),
+    ];
+    expect(findAnchorSectionIndex(sections)).toBe(1);
+  });
+
+  it('skips forward to the next section with releases when Today is the synthesized empty placeholder', () => {
+    const sections = [
+      makeSection({ key: 'today', kind: 'today', data: [emptyRow('today-empty')] }),
+      makeSection({ key: 'tomorrow', kind: 'tomorrow', data: [itemRow('tm1')] }),
+    ];
+    expect(findAnchorSectionIndex(sections)).toBe(1);
+  });
+
+  it('skips past multiple empty-feeling gaps (Later aggregate) to the first section that actually has an item', () => {
+    const sections = [
+      makeSection({ key: 'today', kind: 'today', data: [emptyRow('today-empty')] }),
+      makeSection({ key: 'later', kind: 'later', data: [itemRow('later1')] }),
+    ];
+    expect(findAnchorSectionIndex(sections)).toBe(1);
+  });
+
+  it('falls back to Today\'s own index when nothing later in the loaded window has releases either', () => {
+    const sections = [makeSection({ key: 'today', kind: 'today', data: [emptyRow('today-empty')] })];
+    expect(findAnchorSectionIndex(sections)).toBe(0);
+  });
+
+  it('returns -1 when there is no Today section at all (data not loaded yet)', () => {
+    const sections = [makeSection({ key: 'yesterday', kind: 'yesterday', data: [itemRow('y1')] })];
+    expect(findAnchorSectionIndex(sections)).toBe(-1);
+  });
+});
+
 describe('shouldPerformInitialAnchor', () => {
   const todaySection: UpcomingSection = { key: 'today', kind: 'today', title: 'Today', data: [] };
   const emptyTodaySection: UpcomingSection = { key: 'today', kind: 'today', title: 'Today', data: [] };
@@ -375,30 +433,93 @@ describe('canRetryScrollToToday', () => {
 // See docs/upcoming-timeline-todo.md Phase 9 — the real-device bug this
 // function fixes (Upcoming opened over a month in the past instead of
 // Today, because onStartReached fired at mount-time offset 0 and
-// runaway-loaded extra past pages before the Today anchor ever ran).
+// runaway-loaded extra past pages before the Today anchor ever ran) — and
+// Phase 11, the web recurrence: react-native-web doesn't compensate scroll
+// position when content is prepended/appended, so even a bounded per-
+// direction cap could still fire its own full burst in BOTH directions
+// simultaneously at mount, before any real scrolling, landing away from
+// Today despite being bounded. hasUserScrolled blocks any auto-load until a
+// real scroll has happened at all; autoLoadCount/maxAutoLoadsSinceReset
+// (with the reset side, isScrolledAwayFromStart/End, tested below) is what
+// then keeps ongoing scroll-driven pagination from running away too.
 describe('canAutoLoadMorePages', () => {
   it('refuses to auto-load before the initial anchor has completed, even when a page is available and not currently fetching', () => {
-    expect(canAutoLoadMorePages(false, true, false)).toBe(false);
+    expect(canAutoLoadMorePages(false, true, false, true, 0, 2)).toBe(false);
   });
 
-  it('allows auto-loading once anchored, a page is available, and nothing is already in flight', () => {
-    expect(canAutoLoadMorePages(true, true, false)).toBe(true);
+  it('refuses before any real user scroll has happened, even once anchored', () => {
+    expect(canAutoLoadMorePages(true, true, false, false, 0, 2)).toBe(false);
   });
 
-  it('refuses when there is no further page to load, even if anchored', () => {
-    expect(canAutoLoadMorePages(true, false, false)).toBe(false);
+  it('allows auto-loading once anchored, scrolled, a page is available, and nothing is already in flight', () => {
+    expect(canAutoLoadMorePages(true, true, false, true, 0, 2)).toBe(true);
   });
 
-  it('refuses while a fetch for that direction is already in flight, even if anchored', () => {
-    expect(canAutoLoadMorePages(true, true, true)).toBe(false);
+  it('refuses when there is no further page to load, even if anchored and scrolled', () => {
+    expect(canAutoLoadMorePages(true, false, false, true, 0, 2)).toBe(false);
   });
 
-  it('models the exact runaway-mount scenario: repeated onStartReached firings before anchoring never trigger a single fetch', () => {
+  it('refuses while a fetch for that direction is already in flight, even if anchored and scrolled', () => {
+    expect(canAutoLoadMorePages(true, true, true, true, 0, 2)).toBe(false);
+  });
+
+  it('models the exact runaway-mount scenario: repeated onStartReached firings before anchoring or scrolling never trigger a single fetch', () => {
     let fetchCount = 0;
     const hasAnchoredAlready = false; // list sits at offset 0 before the anchor effect has run
     for (let i = 0; i < 10; i++) {
-      if (canAutoLoadMorePages(hasAnchoredAlready, true, false)) fetchCount += 1;
+      if (canAutoLoadMorePages(hasAnchoredAlready, true, false, false, 0, 2)) fetchCount += 1;
     }
     expect(fetchCount).toBe(0);
+  });
+
+  it('models the mount-time burst-in-both-directions scenario: anchored but never actually scrolled, onStartReached AND onEndReached both firing repeatedly never trigger a single fetch', () => {
+    let fetchCount = 0;
+    for (let i = 0; i < 10; i++) {
+      if (canAutoLoadMorePages(true, true, false, false, 0, 2)) fetchCount += 1; // onStartReached
+      if (canAutoLoadMorePages(true, true, false, false, 0, 2)) fetchCount += 1; // onEndReached
+    }
+    expect(fetchCount).toBe(0);
+  });
+
+  it('caps auto-loads once scrolled but the list never actually leaves the edge again (the web scroll-compensation failure)', () => {
+    let fetchCount = 0;
+    let autoLoadCount = 0;
+    // Simulates onStartReached firing every render because prepended
+    // content is never compensated for — hasUserScrolled is (genuinely)
+    // true from an earlier real scroll, and nothing is ever in-flight for
+    // more than an instant, but the counter is never reset because the
+    // list never reports being away from the edge again afterward.
+    for (let i = 0; i < 20; i++) {
+      if (canAutoLoadMorePages(true, true, false, true, autoLoadCount, 2)) {
+        autoLoadCount += 1;
+        fetchCount += 1;
+      }
+    }
+    expect(fetchCount).toBe(2);
+  });
+
+  it('with the production cap, allows a fresh batch again after the count has been reset (simulating a genuine away-from-edge scroll)', () => {
+    let autoLoadCount = MAX_AUTO_LOAD_PAGES_SINCE_RESET; // capped out
+    expect(canAutoLoadMorePages(true, true, false, true, autoLoadCount, MAX_AUTO_LOAD_PAGES_SINCE_RESET)).toBe(false);
+    autoLoadCount = 0; // onScroll reset it after a genuine away-from-edge scroll
+    expect(canAutoLoadMorePages(true, true, false, true, autoLoadCount, MAX_AUTO_LOAD_PAGES_SINCE_RESET)).toBe(true);
+  });
+});
+
+describe('isScrolledAwayFromStart / isScrolledAwayFromEnd', () => {
+  it('is not away from the start at offset 0 (a freshly-mounted or stuck-at-the-edge list)', () => {
+    expect(isScrolledAwayFromStart(0)).toBe(false);
+  });
+
+  it('is away from the start once comfortably past the reset threshold', () => {
+    expect(isScrolledAwayFromStart(SCROLL_RESET_DISTANCE_PX + 1)).toBe(true);
+  });
+
+  it('is not away from the end when sitting exactly at the bottom of the content', () => {
+    expect(isScrolledAwayFromEnd(800, 1000, 200)).toBe(false); // 1000 - 200 - 800 = 0
+  });
+
+  it('is away from the end when there is a comfortable amount of content still below the viewport', () => {
+    expect(isScrolledAwayFromEnd(0, 2000, 200)).toBe(true); // 2000 - 200 - 0 = 1800
   });
 });

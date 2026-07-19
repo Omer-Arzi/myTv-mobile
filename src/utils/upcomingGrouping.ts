@@ -266,6 +266,27 @@ export function findTodaySectionIndex(sections: UpcomingSection[]): number {
   return sections.findIndex((s) => s.kind === 'today');
 }
 
+// The section to actually SCROLL to — Today if it has any releases, else
+// the next chronological section (tomorrow, the day after, ... or the
+// aggregate "Later" section) that does. Every section other than a
+// possibly-empty synthesized Today always has at least one item by
+// construction (buildUpcomingSections never creates an empty section for
+// any other date), so in practice this only ever needs to skip forward at
+// most one step — the forward scan and defensive "does it have an item"
+// check exist purely so this never silently lands on another empty section
+// if that assumption ever stops holding. Falls back to Today's own (empty)
+// index if nothing later in the currently-loaded window has anything
+// either, rather than returning -1 and scrolling nowhere.
+export function findAnchorSectionIndex(sections: UpcomingSection[]): number {
+  const todayIndex = findTodaySectionIndex(sections);
+  if (todayIndex === -1) return -1;
+  if (sections[todayIndex].data.some((row) => row.type === 'item')) return todayIndex;
+  for (let i = todayIndex + 1; i < sections.length; i++) {
+    if (sections[i].data.some((row) => row.type === 'item')) return i;
+  }
+  return todayIndex;
+}
+
 export interface InitialAnchorDecisionInput {
   // Whether Upcoming is the panel currently visible (mode === 'upcoming')
   // — never scroll a hidden SectionList (see Phase 8: a display:'none'
@@ -316,10 +337,64 @@ export function canRetryScrollToToday(retryCount: number, maxRetries: number): b
 // `sections` far beyond the intended initial window before the anchor ever
 // gets a stable target — see docs/upcoming-timeline-todo.md Phase 9 for the
 // real-device bug this caused (opened on a date over a month in the past
-// instead of Today). The single fix: no auto-pagination in EITHER direction
-// until the first anchor has actually completed — reusing the exact same
-// hasAnchoredToToday flag the anchor effect sets, so there is one source of
-// truth for "has this timeline settled on Today yet."
-export function canAutoLoadMorePages(hasAnchoredAlready: boolean, hasMorePage: boolean, isFetchingPage: boolean): boolean {
-  return hasAnchoredAlready && hasMorePage && !isFetchingPage;
+// instead of Today).
+//
+// Phase 11 (web): the same runaway recurs on web for a deeper reason a
+// simple "has anchored" flag can't fix — react-native-web doesn't
+// compensate scroll offset when content is prepended/appended
+// (maintainVisibleContentPosition isn't respected by its SectionList), so
+// the list can read as "still near the edge" after every auto-loaded page,
+// not just before the first one. Two gates, not one:
+//
+// - hasUserScrolled must be true before ANY auto-load is allowed at all —
+//   without this, even a small per-direction cap still lets onStartReached
+//   AND onEndReached each fire their own bounded burst simultaneously right
+//   at mount (before the user has done anything), landing away from Today
+//   even though the burst is bounded. hasUserScrolled only ever becomes
+//   true from UpcomingTimeline.tsx's onScroll reporting a real, meaningful
+//   displacement from an edge (isScrolledAwayFromStart/End) — which the
+//   small, deliberately-low-index Today anchor scroll does not itself
+//   produce, but genuine user scrolling does.
+// - Once hasUserScrolled is true, autoLoadCount/maxAutoLoadsSinceReset caps
+//   how many *consecutive, unreset* auto-triggered loads can happen in one
+//   direction — still needed even after real scrolling starts, since the
+//   same uncompensated-prepend problem can otherwise resume mid-session.
+//   UpcomingTimeline.tsx resets the relevant counter back to 0 whenever
+//   onScroll reports the list genuinely away from that edge again — a
+//   permanently-stuck list (the web bug) can, by construction, never
+//   report that, so it stays capped; ordinary scrolling resets constantly
+//   and effectively never hits the cap.
+export function canAutoLoadMorePages(
+  hasAnchoredAlready: boolean,
+  hasMorePage: boolean,
+  isFetchingPage: boolean,
+  hasUserScrolled: boolean,
+  autoLoadCount: number,
+  maxAutoLoadsSinceReset: number,
+): boolean {
+  if (!hasAnchoredAlready || !hasMorePage || isFetchingPage || !hasUserScrolled) return false;
+  return autoLoadCount < maxAutoLoadsSinceReset;
+}
+
+// Small and deliberately generous relative to native's typical case (where
+// the anchor scroll succeeds and the list genuinely moves away from the
+// edge, so the counter keeps resetting and this rarely binds at all) — just
+// enough to survive a stuck-at-the-edge web session without letting the
+// unreset auto-load burst run away indefinitely.
+export const MAX_AUTO_LOAD_PAGES_SINCE_RESET = 2;
+
+// How far (in px) the scroll offset needs to be from an edge before that
+// edge's auto-load counter resets (see canAutoLoadMorePages) — comfortably
+// more than one card's height, so a couple of cards' worth of genuine
+// scrolling away from the boundary counts as "not stuck there", without
+// being so large that just reading near an edge keeps the cap engaged.
+export const SCROLL_RESET_DISTANCE_PX = 200;
+
+export function isScrolledAwayFromStart(contentOffsetY: number): boolean {
+  return contentOffsetY > SCROLL_RESET_DISTANCE_PX;
+}
+
+export function isScrolledAwayFromEnd(contentOffsetY: number, contentHeight: number, layoutHeight: number): boolean {
+  const distanceFromEnd = contentHeight - layoutHeight - contentOffsetY;
+  return distanceFromEnd > SCROLL_RESET_DISTANCE_PX;
 }

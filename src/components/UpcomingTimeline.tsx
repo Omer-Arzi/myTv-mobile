@@ -23,11 +23,14 @@ import {
   buildUpcomingSections,
   canAutoLoadMorePages,
   canRetryScrollToToday,
-  findTodaySectionIndex,
+  findAnchorSectionIndex,
   getInitialUpcomingWindow,
   getLocalDateKey,
   getNextUpcomingWindow,
   getPreviousUpcomingWindow,
+  isScrolledAwayFromEnd,
+  isScrolledAwayFromStart,
+  MAX_AUTO_LOAD_PAGES_SINCE_RESET,
   patchUpcomingItemInPages,
   shouldPerformInitialAnchor,
   UpcomingRow,
@@ -52,6 +55,19 @@ const MAX_SCROLL_TO_TODAY_RETRIES = 6;
 // succeeds on its first scrollToLocation call with no visible retry
 // "settling" at all.
 const INITIAL_NUM_TO_RENDER = 30;
+// How long a scrollToLocation call suppresses onScroll from latching
+// hasUserScrolled AND blocks onStartReached/onEndReached from auto-loading
+// at all — generous relative to a long *animated* scroll's real duration
+// (e.g. jumping back to Today from deep in the future), not just an
+// instant jump: an animated scroll fires many intermediate onScroll events
+// while still in flight, each reporting a position "away from" whatever
+// edge it's passing through, which — if not suppressed for the WHOLE
+// transit, not just its first moment — can re-arm the auto-load cap
+// mid-scroll and load extra pages that shift content out from under the
+// still-in-flight animation, landing away from the intended target. Also
+// comfortably above react-native-web's own 100ms scroll-end settle timeout
+// (ScrollViewBase).
+const PROGRAMMATIC_SCROLL_SUPPRESS_MS = 1500;
 
 export interface UpcomingTimelineHandle {
   // Smoothly returns the timeline to Today — used by WatchlistScreen's
@@ -86,6 +102,32 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
   const listRef = useRef<SectionList<UpcomingRow, UpcomingSection>>(null);
   const hasAnchoredToToday = useRef(false);
   const scrollToTodayRetriesRef = useRef(0);
+  // True only once onScroll has reported the list genuinely away from an
+  // edge (isScrolledAwayFromStart/End) from a scroll we didn't cause
+  // ourselves (see isProgrammaticScrollRef below — the Today anchor isn't
+  // always a tiny jump; if there are past days above it, its own
+  // scrollToLocation call can easily cross the away-from-edge threshold).
+  // See canAutoLoadMorePages in upcomingGrouping.ts for why this must gate
+  // ANY auto-load: without it, onStartReached and onEndReached can each
+  // fire their own bounded burst simultaneously right at mount, landing
+  // away from Today even though each burst is bounded.
+  const hasUserScrolled = useRef(false);
+  // Set around every scrollToLocation call we make (see
+  // markProgrammaticScroll) so the onScroll handler below can tell "we just
+  // moved the list ourselves" apart from a real user scroll — the counter
+  // resets still apply regardless of cause, only the hasUserScrolled latch
+  // needs this distinction.
+  const isProgrammaticScrollRef = useRef(false);
+  const programmaticScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // How many *consecutive, unreset* auto-triggered previous/next-page loads
+  // have happened in each direction since hasUserScrolled became true — see
+  // canAutoLoadMorePages for the full Phase 11 writeup of why this is also
+  // needed (react-native-web doesn't compensate scroll position when
+  // content is prepended, so onStartReached/onEndReached can keep re-firing
+  // even after a real user scroll). Reset to 0 by the onScroll handler
+  // below whenever the list is genuinely away from that edge again.
+  const autoPreviousLoadCount = useRef(0);
+  const autoNextLoadCount = useRef(0);
   const [mutatingEpisodeId, setMutatingEpisodeId] = useState<string | null>(null);
   // Set only inside the SectionList's own onLayout, and only when it
   // reports a real (>0) height — the one-time, native, event-driven signal
@@ -127,6 +169,9 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
   // never fights the "only once per mount" guard under normal scrolling.
   useEffect(() => {
     hasAnchoredToToday.current = false;
+    hasUserScrolled.current = false;
+    autoPreviousLoadCount.current = 0;
+    autoNextLoadCount.current = 0;
   }, [todayKey]);
 
   const { data, isLoading, isError, error, refetch, isRefetching, fetchPreviousPage, fetchNextPage, hasPreviousPage, hasNextPage, isFetchingPreviousPage, isFetchingNextPage } =
@@ -153,19 +198,42 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
   const lastPage = pages[pages.length - 1];
   const isGloballyEmpty = !isLoading && totalItemCount === 0 && firstPage?.hasMorePast === false && lastPage?.hasMoreFuture === false;
 
+  // Marks the upcoming burst of onScroll events any scrollToLocation call
+  // produces as "ours", so the hasUserScrolled latch above doesn't mistake
+  // our own programmatic anchor scroll for genuine user interaction.
+  const markProgrammaticScroll = useCallback(() => {
+    isProgrammaticScrollRef.current = true;
+    if (programmaticScrollTimeoutRef.current) clearTimeout(programmaticScrollTimeoutRef.current);
+    programmaticScrollTimeoutRef.current = setTimeout(() => {
+      isProgrammaticScrollRef.current = false;
+    }, PROGRAMMATIC_SCROLL_SUPPRESS_MS);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (programmaticScrollTimeoutRef.current) clearTimeout(programmaticScrollTimeoutRef.current);
+    },
+    [],
+  );
+
   // The one shared scroll implementation — used both by the automatic
   // first-entry anchor below and by the imperative scrollToToday() handle
   // (tab-reselect). Resets the retry budget on every fresh invocation, so
   // each explicit scroll attempt gets its own bounded fallback window
   // rather than exhausting a global counter over the component's lifetime.
+  // Targets findAnchorSectionIndex, not plain "today" — if today has no
+  // releases, that lands on the next day (or the aggregate "Later" section)
+  // that actually has something, rather than a blank "Nothing releasing
+  // today" placeholder.
   const scrollToTodaySection = useCallback(
     (animated: boolean) => {
-      const todaySectionIndex = findTodaySectionIndex(sections);
-      if (todaySectionIndex === -1) return;
+      const anchorSectionIndex = findAnchorSectionIndex(sections);
+      if (anchorSectionIndex === -1) return;
       scrollToTodayRetriesRef.current = 0;
-      listRef.current?.scrollToLocation({ sectionIndex: todaySectionIndex, itemIndex: 0, animated, viewOffset: 0 });
+      markProgrammaticScroll();
+      listRef.current?.scrollToLocation({ sectionIndex: anchorSectionIndex, itemIndex: 0, animated, viewOffset: 0 });
     },
-    [sections],
+    [sections, markProgrammaticScroll],
   );
 
   // Bring Today into focus on first entry, without requiring the user to
@@ -203,11 +271,12 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
     if (!canRetryScrollToToday(scrollToTodayRetriesRef.current, MAX_SCROLL_TO_TODAY_RETRIES)) return;
     scrollToTodayRetriesRef.current += 1;
     setTimeout(() => {
-      const todaySectionIndex = findTodaySectionIndex(sections);
-      if (todaySectionIndex === -1) return;
-      listRef.current?.scrollToLocation({ sectionIndex: todaySectionIndex, itemIndex: 0, animated: false, viewOffset: 0 });
+      const anchorSectionIndex = findAnchorSectionIndex(sections);
+      if (anchorSectionIndex === -1) return;
+      markProgrammaticScroll();
+      listRef.current?.scrollToLocation({ sectionIndex: anchorSectionIndex, itemIndex: 0, animated: false, viewOffset: 0 });
     }, SCROLL_TO_TODAY_RETRY_DELAY_MS);
-  }, [sections]);
+  }, [sections, markProgrammaticScroll]);
 
   const handleListLayout = useCallback((e: LayoutChangeEvent) => {
     if (e.nativeEvent.layout.height > 0) setHasLaidOut(true);
@@ -331,16 +400,37 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
           )
         }
         onStartReached={() => {
+          // Never while one of our own scrollToLocation calls is still in
+          // flight (see markProgrammaticScroll) — an animated jump back to
+          // Today (the tab-reselect gesture) passes through the "near
+          // start" threshold while still settling, and an auto-load
+          // triggered mid-transit shifts content out from under the
+          // still-moving scroll, landing away from the intended target.
+          if (isProgrammaticScrollRef.current) return;
           // Gated on hasAnchoredToToday — see docs/upcoming-timeline-todo.md
           // Phase 9: an ungated onStartReached fires immediately on mount
           // (a fresh SectionList always starts at offset 0, trivially "near
           // the start"), racing the async Today-anchor and runaway-loading
-          // extra past pages before it ever gets a stable target.
-          if (canAutoLoadMorePages(hasAnchoredToToday.current, hasPreviousPage, isFetchingPreviousPage)) void fetchPreviousPage();
+          // extra past pages before it ever gets a stable target. ALSO
+          // gated on hasUserScrolled (Phase 11) — without it, this and
+          // onEndReached could each still fire their own bounded burst
+          // simultaneously right at mount, landing away from Today even
+          // though bounded (react-native-web doesn't compensate scroll
+          // position when content is prepended/appended, so the list can
+          // read as "near both edges" for a short initial render). See
+          // canAutoLoadMorePages and the onScroll handler below.
+          if (canAutoLoadMorePages(hasAnchoredToToday.current, hasPreviousPage, isFetchingPreviousPage, hasUserScrolled.current, autoPreviousLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
+            autoPreviousLoadCount.current += 1;
+            void fetchPreviousPage();
+          }
         }}
         onStartReachedThreshold={2}
         onEndReached={() => {
-          if (canAutoLoadMorePages(hasAnchoredToToday.current, hasNextPage, isFetchingNextPage)) void fetchNextPage();
+          if (isProgrammaticScrollRef.current) return;
+          if (canAutoLoadMorePages(hasAnchoredToToday.current, hasNextPage, isFetchingNextPage, hasUserScrolled.current, autoNextLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
+            autoNextLoadCount.current += 1;
+            void fetchNextPage();
+          }
         }}
         onEndReachedThreshold={2}
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
@@ -351,6 +441,23 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
         contentContainerStyle={styles.contentContainer}
         onLayout={handleListLayout}
         onScrollToIndexFailed={handleScrollToIndexFailed}
+        // Latches hasUserScrolled true (unless this scroll was our own —
+        // see isProgrammaticScrollRef/markProgrammaticScroll) and resets
+        // each direction's auto-load cap (regardless of cause), whenever
+        // the list is genuinely away from that edge — see
+        // canAutoLoadMorePages/Phase 11. A list permanently stuck at an
+        // edge (the web bug) never satisfies either check, so it stays
+        // blocked/capped; ordinary scrolling latches almost immediately and
+        // keeps resetting the cap, so it effectively never binds.
+        scrollEventThrottle={16}
+        onScroll={(e) => {
+          const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+          const awayFromStart = isScrolledAwayFromStart(contentOffset.y);
+          const awayFromEnd = isScrolledAwayFromEnd(contentOffset.y, contentSize.height, layoutMeasurement.height);
+          if ((awayFromStart || awayFromEnd) && !isProgrammaticScrollRef.current) hasUserScrolled.current = true;
+          if (awayFromStart) autoPreviousLoadCount.current = 0;
+          if (awayFromEnd) autoNextLoadCount.current = 0;
+        }}
       />
     </Screen>
   );
