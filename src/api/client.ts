@@ -1,12 +1,16 @@
 // Minimal typed fetch wrapper for the MyTv backend (API_CONTRACT.md in the
 // server repo is the source of truth for these shapes). Every request is
 // implicitly treated as the same dev user by the backend (single-user app)
-// — deployments that set APP_PASSWORD additionally require the session
-// cookie from POST /auth/login, which `credentials: 'include'` below
-// carries automatically once set (see server/docs/auth.md).
+// — deployments that set APP_PASSWORD additionally require the bearer
+// token from POST /auth/login, attached below as an Authorization header.
+// Deliberately NOT a cookie — see server/docs/auth.md's "Why a bearer
+// token, not a cookie" (Railway's *.up.railway.app subdomains are
+// different *sites* to a browser, making a cookie third-party and subject
+// to Safari/iOS's default blocking).
 
 import { API_BASE_URL } from './config';
 import { setAuthState } from './authState';
+import { clearAuthToken, getAuthToken } from './authToken';
 
 // Matches the Nest validation/HTTP-exception error shape documented in
 // API_CONTRACT.md's "Error shape" section: { statusCode, message, error }
@@ -51,16 +55,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const timeoutController = new AbortController();
   const timeout = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS);
 
+  const token = await getAuthToken();
+
   let response: Response;
   try {
     response = await fetch(url, {
       ...init,
-      headers: { 'Content-Type': 'application/json', ...init?.headers },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...init?.headers,
+      },
       signal: timeoutController.signal,
-      // Carries the session cookie cross-origin (the mobile PWA and the
-      // API are on different Railway subdomains) — a no-op locally, where
-      // no APP_PASSWORD means the server never checks for it at all.
-      credentials: 'include',
     });
   } catch (err) {
     // Network failure (backend unreachable, wrong API_BASE_URL, offline,
@@ -75,8 +81,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     // Any 401 — not just from the initial GET /auth/status check AuthGate
     // makes on launch, but a session that expires mid-use on any later
-    // request too — kicks the whole app back to the login screen.
-    if (response.status === 401) setAuthState(false);
+    // request too — clears the now-invalid token and kicks the whole app
+    // back to the login screen.
+    if (response.status === 401) {
+      void clearAuthToken();
+      setAuthState(false);
+    }
 
     let body: ApiErrorBody | undefined;
     try {

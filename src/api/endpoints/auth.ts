@@ -1,11 +1,17 @@
 import { apiClient } from '../client';
+import { clearAuthToken, setAuthToken } from '../authToken';
 
-export function login(password: string): Promise<{ ok: true }> {
-  return apiClient.post<{ ok: true }>('/auth/login', { password });
+// Stores the returned bearer token itself — callers don't need to touch
+// authToken.ts directly. See client.ts for how it's attached to requests.
+export async function login(password: string): Promise<void> {
+  const { token } = await apiClient.post<{ token: string }>('/auth/login', { password });
+  await setAuthToken(token);
 }
 
-export function logout(): Promise<{ ok: true }> {
-  return apiClient.post<{ ok: true }>('/auth/logout');
+// Purely local — there's no server-side session to invalidate for a bearer
+// token (see server/docs/auth.md); logging out just means forgetting it.
+export function logout(): Promise<void> {
+  return clearAuthToken();
 }
 
 // Deliberately reachable only if the server's session guard already let it
