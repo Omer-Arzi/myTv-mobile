@@ -1,4 +1,4 @@
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { PosterImage } from './PosterImage';
 import { SeriesSearchResult } from '../api/types';
@@ -68,7 +68,12 @@ export function SearchResultCard({ result, addState = 'idle', onOpenSeries, onRe
     <Pressable
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
       onPress={onOpenSeries}
-      accessibilityRole="button"
+      // Web only: this row can contain TrailingAction's own nested button
+      // (the review/compare/add icon). react-native-web renders
+      // accessibilityRole="button" as a literal <button>, and browsers
+      // don't allow <button> inside <button> — the DOM silently breaks
+      // that nesting. Native touchables have no such constraint.
+      accessibilityRole={Platform.OS === 'web' ? undefined : 'button'}
       accessibilityLabel={`Open ${result.title}`}
     >
       {children}

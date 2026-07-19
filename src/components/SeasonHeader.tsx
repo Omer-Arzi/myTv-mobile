@@ -1,4 +1,4 @@
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing, typography } from '../theme/theme';
 import { SeasonProgress } from '../utils/seasonProgress';
 
@@ -30,7 +30,12 @@ export function SeasonHeader({ title, progress, expanded, onPress, onMarkAllWatc
     <Pressable
       style={({ pressed }) => [styles.container, pressed && styles.pressed]}
       onPress={onPress}
-      accessibilityRole="button"
+      // Web only: this row can contain its own nested "mark all watched"
+      // button (below). react-native-web renders accessibilityRole="button"
+      // as a literal <button>, and browsers don't allow <button> inside
+      // <button> — the DOM silently breaks that nesting. Native touchables
+      // don't have this constraint, so native keeps the button role as-is.
+      accessibilityRole={Platform.OS === 'web' ? undefined : 'button'}
       accessibilityLabel={`${title}, ${progress.watchedCount} of ${progress.totalCount} watched, ${expanded ? 'expanded' : 'collapsed'}`}
     >
       <View style={styles.topRow}>
