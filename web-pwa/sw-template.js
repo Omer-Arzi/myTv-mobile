@@ -7,6 +7,20 @@
 // user-specific, and mutated constantly (mark-watched, sync, etc.), so
 // serving it from a cache would show stale or wrong state. Offline support
 // here means "the app shell loads and renders", not "the API works offline".
+// The API being a genuinely different origin (see main API_BASE_URL) makes
+// this structural, not just a rule that could be forgotten — there is no
+// same-origin request this worker could accidentally cache that carries
+// tracking data or an auth token.
+//
+// Update safety: navigations are network-first (falling back to the cached
+// shell only if actually offline), so relaunching the app while online
+// always fetches the current index.html/JS reference — a stale build is
+// only ever served while offline, never while a fresher one is reachable.
+// skipWaiting()+clients.claim() (below) mean a newly installed worker takes
+// over immediately, including already-open tabs, rather than leaving them
+// pinned to whatever worker was active when they first loaded — combined
+// with the old-cache purge in "activate", there is no path back to an
+// obsolete build once a new one has successfully installed.
 const CACHE_VERSION = '__CACHE_VERSION__';
 const CACHE_NAME = `mytv-shell-${CACHE_VERSION}`;
 const PRECACHE_URLS = __PRECACHE_URLS__;

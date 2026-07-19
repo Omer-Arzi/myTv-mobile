@@ -1,9 +1,10 @@
 {
   "name": "MyTV",
   "short_name": "MyTV",
-  "description": "Personal TV-series tracking app",
+  "description": "Personal TV series and anime tracker — track what you watch, see what's next, and follow upcoming releases.",
   "start_url": "/",
   "scope": "/",
+  "id": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0A0A0D",
@@ -21,6 +22,12 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512-PLACEHOLDER.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

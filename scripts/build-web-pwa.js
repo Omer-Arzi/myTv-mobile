@@ -51,10 +51,23 @@ fs.writeFileSync(path.join(distDir, 'sw.js'), sw);
 const indexPath = path.join(distDir, 'index.html');
 let html = fs.readFileSync(indexPath, 'utf8');
 if (!html.includes('rel="manifest"')) {
+  // viewport-fit=cover is required for env(safe-area-inset-*) to report
+  // real (nonzero) values at all on notched iPhones — without it, the
+  // safe-area insets react-native-safe-area-context relies on throughout
+  // this app (Screen.tsx's SafeAreaView) silently resolve to 0 in
+  // standalone/installed mode. Expo's own generated viewport tag doesn't
+  // include it, so it's added here rather than by hand-editing a
+  // generated file.
+  html = html.replace(
+    '<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />',
+    '<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover" />',
+  );
+
   const injected = `
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="MyTV">
     <script>
