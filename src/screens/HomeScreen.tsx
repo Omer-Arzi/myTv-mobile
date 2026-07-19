@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { cloneElement, useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, LayoutAnimation, Platform, RefreshControl, ScrollView, StyleSheet, UIManager, View } from 'react-native';
 import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -14,6 +14,7 @@ import { SectionHeader } from '../components/SectionHeader';
 import { SeriesCard } from '../components/SeriesCard';
 import { CaughtUpCard, WatchNextCard, WatchNextCompletionOutcome } from '../components/WatchNextCard';
 import { EmptyState } from '../components/EmptyState';
+import { AnimatedExitWrapper } from '../components/AnimatedExitWrapper';
 import { RootStackParamList } from '../navigation/types';
 import { colors, spacing } from '../theme/theme';
 import { getErrorMessage } from '../utils/errors';
@@ -80,6 +81,11 @@ export function HomeScreen() {
   // the moment that series' slot advances or is removed; also cleared
   // wholesale on a full reconcile.
   const [pendingAdvanceEpisodeIds, setPendingAdvanceEpisodeIds] = useState<Set<string>>(new Set());
+  // Web-only: series ids whose slot is mid-exit-animation (AnimatedExitWrapper)
+  // after a no-next-episode mark-watched. Native never populates this — it
+  // removes the slot immediately via LayoutAnimation instead (see
+  // schedulePostWatchReconciliation/removeWatchNextSlot).
+  const [exitingSeriesIds, setExitingSeriesIds] = useState<Set<string>>(new Set());
 
   // Recently Watched items inserted locally, newest first, from mutation
   // responses this session — layered on top of (not replacing) the frozen
@@ -120,6 +126,7 @@ export function HomeScreen() {
       setWatchNextBySeriesId(Object.fromEntries(items.map((item) => [item.series.id, item])));
       setCompletionState({});
       setPendingAdvanceEpisodeIds(new Set());
+      setExitingSeriesIds(new Set());
       // The server's own recentlyWatched now covers everything these local
       // insertions were standing in for — drop them so nothing lingers past
       // its explicit-refresh lifetime.
@@ -143,13 +150,43 @@ export function HomeScreen() {
   // the mutation response itself (nextEpisode, userStatus,
   // remainingEpisodesAfterNext) — no follow-up request, so there is
   // nothing that can race a background refetch mid-animation.
+  // Actually drops a slot from the three pieces of state that make it up.
+  // Called immediately on native (right after LayoutAnimation.configureNext,
+  // which animates the removal for free) and, on web, only once
+  // AnimatedExitWrapper's own exit animation finishes — LayoutAnimation is a
+  // no-op on react-native-web, so removing the slot immediately there would
+  // make it disappear with no transition at all.
+  const removeWatchNextSlot = useCallback((seriesId: string) => {
+    setWatchNextOrder((prev) => (prev ?? []).filter((id) => id !== seriesId));
+    setWatchNextBySeriesId((prev) => {
+      if (!(seriesId in prev)) return prev;
+      const next = { ...prev };
+      delete next[seriesId];
+      return next;
+    });
+    setCompletionState((prev) => {
+      if (!(seriesId in prev)) return prev;
+      const next = { ...prev };
+      delete next[seriesId];
+      return next;
+    });
+    setExitingSeriesIds((prev) => {
+      if (!prev.has(seriesId)) return prev;
+      const next = new Set(prev);
+      next.delete(seriesId);
+      return next;
+    });
+  }, []);
+
   const schedulePostWatchReconciliation = useCallback((seriesId: string, episodeId: string, response: MarkWatchedResponse) => {
     const existing = pendingReconcileTimeouts.current[seriesId];
     if (existing) clearTimeout(existing);
 
     const timeout = setTimeout(() => {
       delete pendingReconcileTimeouts.current[seriesId];
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      if (Platform.OS !== 'web') {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      }
 
       if (response.nextEpisode) {
         // A valid next episode exists — update the card in place rather
@@ -169,23 +206,16 @@ export function HomeScreen() {
           delete next[seriesId];
           return next;
         });
+      } else if (Platform.OS === 'web') {
+        // Mark exiting rather than removing outright — AnimatedExitWrapper
+        // (see the render below) animates the collapse, then calls
+        // removeWatchNextSlot itself once that finishes.
+        setExitingSeriesIds((prev) => new Set(prev).add(seriesId));
       } else {
         // No valid next episode — the slot has already shown its brief
         // success state (set synchronously in onSuccess below); now remove
         // it from the list entirely.
-        setWatchNextOrder((prev) => (prev ?? []).filter((id) => id !== seriesId));
-        setWatchNextBySeriesId((prev) => {
-          if (!(seriesId in prev)) return prev;
-          const next = { ...prev };
-          delete next[seriesId];
-          return next;
-        });
-        setCompletionState((prev) => {
-          if (!(seriesId in prev)) return prev;
-          const next = { ...prev };
-          delete next[seriesId];
-          return next;
-        });
+        removeWatchNextSlot(seriesId);
       }
 
       setPendingAdvanceEpisodeIds((prev) => {
@@ -197,7 +227,7 @@ export function HomeScreen() {
     }, POST_WATCH_RECONCILE_DELAY_MS);
 
     pendingReconcileTimeouts.current[seriesId] = timeout;
-  }, []);
+  }, [removeWatchNextSlot]);
 
   // Shared by both the V (check-button) action and the swipe action —
   // WatchNextCard calls this same onMarkWatched prop from both its check
@@ -361,22 +391,17 @@ export function HomeScreen() {
             if (!item) return null;
 
             const completionOutcome = completionState[seriesId];
-            if (completionOutcome) {
-              return (
-                <CaughtUpCard
-                  key={seriesId}
-                  seriesTitle={item.series.title}
-                  imageUrl={pickImage(item.nextEpisode.imageUrl, item.series.backdropUrl, item.series.posterUrl)}
-                  outcome={completionOutcome}
-                  onPress={() => openSeries(item.series.id, item.series.title)}
-                />
-              );
-            }
-
             const isWatched = pendingAdvanceEpisodeIds.has(item.nextEpisode.id);
-            return (
+
+            const cardElement = completionOutcome ? (
+              <CaughtUpCard
+                seriesTitle={item.series.title}
+                imageUrl={pickImage(item.nextEpisode.imageUrl, item.series.backdropUrl, item.series.posterUrl)}
+                outcome={completionOutcome}
+                onPress={() => openSeries(item.series.id, item.series.title)}
+              />
+            ) : (
               <WatchNextCard
-                key={seriesId}
                 seriesTitle={item.series.title}
                 // Compact landscape thumbnail — the episode still fits this
                 // shape best; backdrop next, poster (portrait) as a last resort.
@@ -394,6 +419,22 @@ export function HomeScreen() {
                 onSwipeLockChange={setIsSwipeLocked}
               />
             );
+
+            // Only web needs the animated wrapper — native removes the slot
+            // immediately via LayoutAnimation (see removeWatchNextSlot).
+            if (Platform.OS === 'web') {
+              return (
+                <AnimatedExitWrapper
+                  key={seriesId}
+                  exiting={exitingSeriesIds.has(seriesId)}
+                  onExited={() => removeWatchNextSlot(seriesId)}
+                >
+                  {cardElement}
+                </AnimatedExitWrapper>
+              );
+            }
+
+            return cloneElement(cardElement, { key: seriesId });
           })}
         </View>
       )}
