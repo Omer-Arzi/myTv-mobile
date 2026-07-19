@@ -20,7 +20,14 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single",
+      "name": "MyTV",
+      "shortName": "MyTV",
+      "themeColor": "#0A0A0D",
+      "backgroundColor": "#0A0A0D",
+      "display": "standalone"
     },
     "plugins": [
       "expo-asset"
