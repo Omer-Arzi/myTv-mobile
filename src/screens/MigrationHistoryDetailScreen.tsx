@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -14,6 +14,7 @@ import { RootStackParamList } from '../navigation/types';
 import { MigrationRollbackPreview } from '../api/types';
 import { colors, radii, spacing, typography } from '../theme/theme';
 import { formatDate } from '../utils/format';
+import { appAlert } from '../utils/appAlert';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type DetailRoute = RouteProp<RootStackParamList, 'MigrationHistoryDetail'>;
@@ -48,7 +49,7 @@ export function MigrationHistoryDetailScreen() {
   const previewMutation = useMutation({
     mutationFn: () => previewRollback(migrationId),
     onSuccess: (result) => setPreview(result),
-    onError: (err: unknown) => Alert.alert('Could not preview rollback', err instanceof Error ? err.message : 'Something went wrong.'),
+    onError: (err: unknown) => appAlert('Could not preview rollback', err instanceof Error ? err.message : 'Something went wrong.'),
   });
 
   const rollbackMutation = useMutation({
@@ -62,13 +63,13 @@ export function MigrationHistoryDetailScreen() {
       queryClient.invalidateQueries({ queryKey: queryKeys.home });
       queryClient.invalidateQueries({ queryKey: queryKeys.migrationHistory });
       queryClient.invalidateQueries({ queryKey: queryKeys.migrationHistoryDetail(migrationId) });
-      Alert.alert('Rollback complete', result.message, [{ text: 'OK', onPress: () => navigation.goBack() }]);
+      appAlert('Rollback complete', result.message, [{ text: 'OK', onPress: () => navigation.goBack() }]);
     },
-    onError: (err: unknown) => Alert.alert('Rollback failed', err instanceof Error ? err.message : 'Something went wrong.'),
+    onError: (err: unknown) => appAlert('Rollback failed', err instanceof Error ? err.message : 'Something went wrong.'),
   });
 
   const handleConfirmRollback = useCallback(() => {
-    Alert.alert('Confirm rollback', 'This will restore the previous provider and progress, and remove episodes this migration added. Watched history will remain preserved.', [
+    appAlert('Confirm rollback', 'This will restore the previous provider and progress, and remove episodes this migration added. Watched history will remain preserved.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Confirm rollback', style: 'destructive', onPress: () => rollbackMutation.mutate() },
     ]);

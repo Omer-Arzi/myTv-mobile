@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AlertButton, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AlertButton, Pressable, StyleSheet, Text, View } from 'react-native';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSeriesDetail, updateSeriesStatus, watchSeriesAllReleased } from '../api/endpoints/series';
@@ -21,6 +21,7 @@ import { RootStackParamList } from '../navigation/types';
 import { colors, radii, spacing, typography } from '../theme/theme';
 import { getErrorMessage, isForceRequiredError } from '../utils/errors';
 import { confirmAsync } from '../utils/confirmAsync';
+import { appAlert } from '../utils/appAlert';
 import { episodeLabel, formatStatusLabel } from '../utils/format';
 import { pickImage } from '../utils/media';
 import { computeSeasonProgress, seasonDisplayTitle } from '../utils/seasonProgress';
@@ -128,7 +129,7 @@ export function SeriesDetailScreen() {
       void queryClient.invalidateQueries({ queryKey: ['upcoming'] });
     },
     onError: (mutationError) => {
-      Alert.alert('Could not mark as watched', getErrorMessage(mutationError));
+      appAlert('Could not mark as watched', getErrorMessage(mutationError));
     },
     onSettled: () => setMarkingEpisodeId(null),
   });
@@ -140,7 +141,7 @@ export function SeriesDetailScreen() {
       setEditingEpisode(null);
     },
     onError: (mutationError) => {
-      Alert.alert('Could not save note', getErrorMessage(mutationError));
+      appAlert('Could not save note', getErrorMessage(mutationError));
     },
   });
 
@@ -170,7 +171,7 @@ export function SeriesDetailScreen() {
       void queryClient.invalidateQueries({ queryKey: ['upcoming'] });
     },
     onError: (mutationError) => {
-      Alert.alert('Could Not Update Status', getErrorMessage(mutationError));
+      appAlert('Could Not Update Status', getErrorMessage(mutationError));
     },
   });
 
@@ -195,7 +196,7 @@ export function SeriesDetailScreen() {
       ...actions.map((action) => ({ text: action.label, onPress: () => void runStatusAction(action) })),
       { text: 'Cancel', style: 'cancel' as const },
     ];
-    Alert.alert('Series Options', undefined, buttons, { cancelable: true });
+    appAlert('Series Options', undefined, buttons, { cancelable: true });
   };
 
   // The one season auto-expanded on first load: the one with the next
@@ -248,7 +249,7 @@ export function SeriesDetailScreen() {
       const preview = await call({ dryRun: true });
 
       if (preview.watchesCreated === 0) {
-        Alert.alert('Already Caught Up', `No unwatched, released episodes found in ${label}.`);
+        appAlert('Already Caught Up', `No unwatched, released episodes found in ${label}.`);
         return;
       }
 
@@ -259,7 +260,7 @@ export function SeriesDetailScreen() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail(params.seriesId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
       void queryClient.invalidateQueries({ queryKey: ['upcoming'] });
-      Alert.alert('Done', `Marked ${preview.watchesCreated} episode${preview.watchesCreated === 1 ? '' : 's'} as watched.`);
+      appAlert('Done', `Marked ${preview.watchesCreated} episode${preview.watchesCreated === 1 ? '' : 's'} as watched.`);
     } catch (err) {
       if (isForceRequiredError(err)) {
         const forceConfirmed = await confirmAsync('Cannot Mark Watched', getErrorMessage(err), 'Mark Anyway');
@@ -270,14 +271,14 @@ export function SeriesDetailScreen() {
           void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail(params.seriesId) });
           void queryClient.invalidateQueries({ queryKey: queryKeys.home });
           void queryClient.invalidateQueries({ queryKey: ['upcoming'] });
-          Alert.alert('Done', `Marked ${applied.watchesCreated} episode${applied.watchesCreated === 1 ? '' : 's'} as watched.`);
+          appAlert('Done', `Marked ${applied.watchesCreated} episode${applied.watchesCreated === 1 ? '' : 's'} as watched.`);
         } catch (forceErr) {
-          Alert.alert('Could Not Mark Watched', getErrorMessage(forceErr));
+          appAlert('Could Not Mark Watched', getErrorMessage(forceErr));
         }
         return;
       }
 
-      Alert.alert('Could Not Mark Watched', getErrorMessage(err));
+      appAlert('Could Not Mark Watched', getErrorMessage(err));
     }
   };
 
@@ -335,10 +336,10 @@ export function SeriesDetailScreen() {
         } catch (forceErr) {
           // Local state was never touched, so the episode is still shown
           // watched — no corruption to undo here.
-          Alert.alert('Could Not Mark Unwatched', getErrorMessage(forceErr));
+          appAlert('Could Not Mark Unwatched', getErrorMessage(forceErr));
         }
       } else {
-        Alert.alert('Could Not Mark Unwatched', getErrorMessage(err));
+        appAlert('Could Not Mark Unwatched', getErrorMessage(err));
       }
     } finally {
       setUnwatchingEpisodeId(null);
@@ -358,7 +359,7 @@ export function SeriesDetailScreen() {
     );
 
     if (result.warning) {
-      Alert.alert('Heads Up', result.warning);
+      appAlert('Heads Up', result.warning);
     }
 
     void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail(params.seriesId) });

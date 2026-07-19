@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, FlatList, LayoutAnimation, Platform, RefreshControl, ScrollView, StyleSheet, UIManager, View } from 'react-native';
+import { FlatList, LayoutAnimation, Platform, RefreshControl, ScrollView, StyleSheet, UIManager, View } from 'react-native';
 import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -17,6 +17,7 @@ import { EmptyState } from '../components/EmptyState';
 import { RootStackParamList } from '../navigation/types';
 import { colors, spacing } from '../theme/theme';
 import { getErrorMessage } from '../utils/errors';
+import { appAlert } from '../utils/appAlert';
 import { episodeLabel, formatDate } from '../utils/format';
 import { pickImage } from '../utils/media';
 
@@ -261,7 +262,7 @@ export function HomeScreen() {
       void queryClient.invalidateQueries({ queryKey: ['upcoming'] });
     },
     onError: (mutationError) => {
-      Alert.alert('Could not mark as watched', getErrorMessage(mutationError));
+      appAlert('Could not mark as watched', getErrorMessage(mutationError));
     },
     onSettled: () => setPendingEpisodeId(null),
   });

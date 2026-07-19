@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -10,6 +10,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { RootStackParamList } from '../navigation/types';
 import { colors, radii, spacing, typography } from '../theme/theme';
 import { formatConfidencePercent } from '../utils/format';
+import { appAlert } from '../utils/appAlert';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type ComparisonRoute = RouteProp<RootStackParamList, 'PossibleMatchComparison'>;
@@ -34,7 +35,7 @@ export function PossibleMatchComparisonScreen() {
       queryClient.invalidateQueries({ queryKey: ['search'] });
       navigation.goBack();
     },
-    onError: (err: unknown) => Alert.alert('Could not save identity', err instanceof Error ? err.message : 'Something went wrong.'),
+    onError: (err: unknown) => appAlert('Could not save identity', err instanceof Error ? err.message : 'Something went wrong.'),
   });
 
   const openExisting = useCallback(() => {
@@ -42,7 +43,7 @@ export function PossibleMatchComparisonScreen() {
   }, [navigation, possibleSeriesId, possibleSeriesTitle]);
 
   const handleConfirmSame = useCallback(() => {
-    Alert.alert('Confirm same series', `Confirm "${candidateTitle}" as the same series as "${possibleSeriesTitle}"?`, [
+    appAlert('Confirm same series', `Confirm "${candidateTitle}" as the same series as "${possibleSeriesTitle}"?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Confirm', onPress: () => confirmMutation.mutate() },
     ]);

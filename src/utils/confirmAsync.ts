@@ -1,4 +1,5 @@
-import { Alert, AlertButton } from 'react-native';
+import { AlertButton } from 'react-native';
+import { appAlert } from './appAlert';
 
 // Promise-wraps Alert.alert's callback-based API so a multi-step
 // confirm -> act -> (maybe) force-retry flow can be written as sequential
@@ -10,6 +11,6 @@ export function confirmAsync(title: string, message: string, confirmText: string
       { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
       { text: confirmText, onPress: () => resolve(true) },
     ];
-    Alert.alert(title, message, buttons, { cancelable: true, onDismiss: () => resolve(false) });
+    appAlert(title, message, buttons, { cancelable: true, onDismiss: () => resolve(false) });
   });
 }

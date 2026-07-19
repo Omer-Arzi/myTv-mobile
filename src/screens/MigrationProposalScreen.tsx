@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -13,6 +13,7 @@ import { SectionHeader } from '../components/SectionHeader';
 import { StatusBadge } from '../components/StatusBadge';
 import { RootStackParamList } from '../navigation/types';
 import { colors, radii, spacing, typography } from '../theme/theme';
+import { appAlert } from '../utils/appAlert';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type ProposalRoute = RouteProp<RootStackParamList, 'MigrationProposal'>;
@@ -71,10 +72,10 @@ export function MigrationProposalScreen() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.migrationWorkbench });
       queryClient.invalidateQueries({ queryKey: queryKeys.watchlist });
-      Alert.alert('Migration applied', result.message, [{ text: 'OK', onPress: () => navigation.goBack() }]);
+      appAlert('Migration applied', result.message, [{ text: 'OK', onPress: () => navigation.goBack() }]);
     },
     onError: (err: unknown) => {
-      Alert.alert('Migration failed', err instanceof Error ? err.message : 'Something went wrong.');
+      appAlert('Migration failed', err instanceof Error ? err.message : 'Something went wrong.');
     },
   });
 
@@ -84,19 +85,19 @@ export function MigrationProposalScreen() {
     onSettled: () => setIsReviewingSeasonShrink(false),
     onSuccess: () => refetch(),
     onError: (err: unknown) => {
-      Alert.alert('Could not save review', err instanceof Error ? err.message : 'Something went wrong.');
+      appAlert('Could not save review', err instanceof Error ? err.message : 'Something went wrong.');
     },
   });
 
   const handleConfirm = useCallback(() => {
-    Alert.alert('Confirm Migration', `This will correct ${title ?? 'this series'}’ catalog and recompute its status. This cannot be undone from the app.`, [
+    appAlert('Confirm Migration', `This will correct ${title ?? 'this series'}’ catalog and recompute its status. This cannot be undone from the app.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Confirm Migration', style: 'destructive', onPress: () => mutation.mutate() },
     ]);
   }, [mutation, title]);
 
   const handleReviewSeasonShrink = useCallback(() => {
-    Alert.alert(
+    appAlert(
       'Review Season Mismatch',
       `The provider's season structure for ${title ?? 'this series'} doesn't match your local catalog exactly. Approving this will let the migration proceed — every watched episode is still preserved, none are ever deleted or marked watched automatically.`,
       [

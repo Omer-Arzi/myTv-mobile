@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, LayoutChangeEvent, SectionList, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, AppState, LayoutChangeEvent, SectionList, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
@@ -18,6 +18,7 @@ import { UpcomingCard } from './UpcomingCard';
 import { colors, spacing } from '../theme/theme';
 import { getErrorMessage, isForceRequiredError } from '../utils/errors';
 import { confirmAsync } from '../utils/confirmAsync';
+import { appAlert } from '../utils/appAlert';
 import {
   buildUpcomingSections,
   canAutoLoadMorePages,
@@ -253,7 +254,7 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
             const result = await unwatchEpisode(item.episodeWatchId);
             patchItem(item.episodeId, { isWatched: false, episodeWatchId: null });
             if (result.warning) {
-              Alert.alert('Heads Up', result.warning);
+              appAlert('Heads Up', result.warning);
             }
           } catch (err) {
             if (!isForceRequiredError(err)) throw err;
@@ -266,14 +267,14 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
             const result = await unwatchEpisode(item.episodeWatchId, { force: true });
             patchItem(item.episodeId, { isWatched: false, episodeWatchId: null });
             if (result.warning) {
-              Alert.alert('Heads Up', result.warning);
+              appAlert('Heads Up', result.warning);
             }
           }
         }
         void queryClient.invalidateQueries({ queryKey: queryKeys.home });
         void queryClient.invalidateQueries({ queryKey: queryKeys.watchlist });
       } catch (err) {
-        Alert.alert(item.isWatched ? 'Could Not Mark Unwatched' : 'Could Not Mark Watched', getErrorMessage(err));
+        appAlert(item.isWatched ? 'Could Not Mark Unwatched' : 'Could Not Mark Watched', getErrorMessage(err));
       } finally {
         setMutatingEpisodeId(null);
       }

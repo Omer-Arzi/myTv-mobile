@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -14,6 +14,7 @@ import { PosterImage } from '../components/PosterImage';
 import { RootStackParamList } from '../navigation/types';
 import { colors, radii, spacing, typography } from '../theme/theme';
 import { formatConfidencePercent } from '../utils/format';
+import { appAlert } from '../utils/appAlert';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type CandidatesRoute = RouteProp<RootStackParamList, 'ProviderCandidateSearch'>;
@@ -49,12 +50,12 @@ export function ProviderCandidateSearchScreen() {
       queryClient.invalidateQueries({ queryKey: queryKeys.migrationWorkbench });
       navigation.replace('MigrationProposal', { seriesId, title });
     },
-    onError: (err: unknown) => Alert.alert('Could not save identity', err instanceof Error ? err.message : 'Something went wrong.'),
+    onError: (err: unknown) => appAlert('Could not save identity', err instanceof Error ? err.message : 'Something went wrong.'),
   });
 
   const handleSelect = useCallback(
     (candidate: { provider: string; providerId: string; title: string; confidenceScore: number }) => {
-      Alert.alert('Confirm identity', `Confirm "${candidate.title}" as the correct match for "${title ?? 'this series'}"? This does not apply a migration yet.`, [
+      appAlert('Confirm identity', `Confirm "${candidate.title}" as the correct match for "${title ?? 'this series'}"? This does not apply a migration yet.`, [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Confirm', onPress: () => confirmMutation.mutate({ provider: candidate.provider, providerId: candidate.providerId, confidence: candidate.confidenceScore }) },
       ]);
