@@ -101,6 +101,16 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
   const navigation = useNavigation<Navigation>();
   const queryClient = useQueryClient();
   const listRef = useRef<SectionList<UpcomingRow, UpcomingSection>>(null);
+  // Mirrors the `isActive` prop into a ref, reassigned fresh on every
+  // render (safe — not part of render output). onStartReached/onEndReached
+  // below read this instead of closing over `isActive` directly: the
+  // display:'none' toggle and the underlying SectionList's own scroll/
+  // layout events don't necessarily settle in the same tick as React
+  // committing the new render, so a callback closure captured just before
+  // a mode switch could otherwise still see the OLD isActive value for
+  // one more event. A ref removes that race entirely.
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
   const hasAnchoredToToday = useRef(false);
   const scrollToTodayRetriesRef = useRef(0);
   // True only once onScroll has reported the list genuinely away from an
@@ -422,7 +432,7 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
           // position when content is prepended/appended, so the list can
           // read as "near both edges" for a short initial render). See
           // canAutoLoadMorePages and the onScroll handler below.
-          if (canAutoLoadMorePages(hasAnchoredToToday.current, hasPreviousPage, isFetchingPreviousPage, hasUserScrolled.current, autoPreviousLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
+          if (canAutoLoadMorePages(isActiveRef.current, hasAnchoredToToday.current, hasPreviousPage, isFetchingPreviousPage, hasUserScrolled.current, autoPreviousLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
             autoPreviousLoadCount.current += 1;
             logEvent('upcoming_auto_load', { direction: 'previous', autoLoadCount: autoPreviousLoadCount.current });
             void fetchPreviousPage();
@@ -431,7 +441,7 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
         onStartReachedThreshold={2}
         onEndReached={() => {
           if (isProgrammaticScrollRef.current) return;
-          if (canAutoLoadMorePages(hasAnchoredToToday.current, hasNextPage, isFetchingNextPage, hasUserScrolled.current, autoNextLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
+          if (canAutoLoadMorePages(isActiveRef.current, hasAnchoredToToday.current, hasNextPage, isFetchingNextPage, hasUserScrolled.current, autoNextLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
             autoNextLoadCount.current += 1;
             logEvent('upcoming_auto_load', { direction: 'next', autoLoadCount: autoNextLoadCount.current });
             void fetchNextPage();

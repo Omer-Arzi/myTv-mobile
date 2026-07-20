@@ -364,7 +364,23 @@ export function canRetryScrollToToday(retryCount: number, maxRetries: number): b
 //   permanently-stuck list (the web bug) can, by construction, never
 //   report that, so it stays capped; ordinary scrolling resets constantly
 //   and effectively never hits the cap.
+//
+// Phase 12 (web): `isActive` closes a real-device runaway confirmed via
+// remoteLogger breadcrumbs — onStartReached/onEndReached are live
+// callbacks on a component that never unmounts (both Watch List and
+// Upcoming panels stay mounted, toggling display:'none' — see
+// WatchlistScreen.tsx), so they keep firing even while the panel is
+// hidden. Toggling display:'none' on/off itself made react-native-web's
+// SectionList misreport its viewport as "near the start", and since
+// hasAnchoredAlready/hasUserScrolled were already true from a previous
+// visit, every other gate here passed — logged as a burst of 7 auto-loads
+// in under 2 seconds, ballooning a 9-section timeline to 201 sections and
+// breaking both manual scroll-up (the target edge kept moving) and the
+// scrollToToday tab-reselect (its target index no longer fit inside
+// initialNumToRender). Auto-loading must never fire for a panel that
+// isn't the one currently visible.
 export function canAutoLoadMorePages(
+  isActive: boolean,
   hasAnchoredAlready: boolean,
   hasMorePage: boolean,
   isFetchingPage: boolean,
@@ -372,7 +388,7 @@ export function canAutoLoadMorePages(
   autoLoadCount: number,
   maxAutoLoadsSinceReset: number,
 ): boolean {
-  if (!hasAnchoredAlready || !hasMorePage || isFetchingPage || !hasUserScrolled) return false;
+  if (!isActive || !hasAnchoredAlready || !hasMorePage || isFetchingPage || !hasUserScrolled) return false;
   return autoLoadCount < maxAutoLoadsSinceReset;
 }
 

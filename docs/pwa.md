@@ -295,3 +295,25 @@ regressions in Chromium/WebKit via Playwright) — the actual bug is specific
 to real iOS standalone display mode, which Playwright's device emulation
 does not reproduce (no browser-chrome-hiding behavior, no real home
 indicator). **Needs a real-device re-check** after the next deploy.
+
+### Second addendum: still present after the visualViewport fix
+
+Real-device re-test reported the white strip "exactly like before" — the
+`--app-vh` fix above made no visible difference. Re-grepped the entire
+`dist/` output for any `background-color` declaration on `html`/`body`:
+there wasn't one, anywhere — Expo's generated reset only ever sets
+`height`, never a background. Whatever the exact residual gap turns out to
+be (this pass didn't find a way to prove the precise remaining cause on
+real iOS standalone display mode — see the verification limitation above,
+still unresolved), it was rendering as the browser's plain default white,
+not this app's own dark background. Added
+`background-color: #0A0A0D;` to the same `html, body` reset block as a
+fourth declaration. This isn't "painting over" the layout bug — the height
+math above is left entirely in place — it's a genuinely missing
+declaration for a dark-themed app's root elements, independent of whatever
+causes any small gap: with it, such a gap is the app's own color instead
+of a jarring white one. Still needs a real-device re-check; if the strip
+persists even now, the next step is measuring `document.documentElement`'s
+actual rendered box against `window.visualViewport` live on a real device
+(e.g. via Safari's remote Web Inspector) rather than reasoning about it
+from a desktop/emulated environment again.

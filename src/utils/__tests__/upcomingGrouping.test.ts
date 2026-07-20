@@ -444,30 +444,42 @@ describe('canRetryScrollToToday', () => {
 // then keeps ongoing scroll-driven pagination from running away too.
 describe('canAutoLoadMorePages', () => {
   it('refuses to auto-load before the initial anchor has completed, even when a page is available and not currently fetching', () => {
-    expect(canAutoLoadMorePages(false, true, false, true, 0, 2)).toBe(false);
+    expect(canAutoLoadMorePages(true, false, true, false, true, 0, 2)).toBe(false);
   });
 
   it('refuses before any real user scroll has happened, even once anchored', () => {
-    expect(canAutoLoadMorePages(true, true, false, false, 0, 2)).toBe(false);
+    expect(canAutoLoadMorePages(true, true, true, false, false, 0, 2)).toBe(false);
   });
 
   it('allows auto-loading once anchored, scrolled, a page is available, and nothing is already in flight', () => {
-    expect(canAutoLoadMorePages(true, true, false, true, 0, 2)).toBe(true);
+    expect(canAutoLoadMorePages(true, true, true, false, true, 0, 2)).toBe(true);
   });
 
   it('refuses when there is no further page to load, even if anchored and scrolled', () => {
-    expect(canAutoLoadMorePages(true, false, false, true, 0, 2)).toBe(false);
+    expect(canAutoLoadMorePages(true, true, false, false, true, 0, 2)).toBe(false);
   });
 
   it('refuses while a fetch for that direction is already in flight, even if anchored and scrolled', () => {
-    expect(canAutoLoadMorePages(true, true, true, true, 0, 2)).toBe(false);
+    expect(canAutoLoadMorePages(true, true, true, true, true, 0, 2)).toBe(false);
+  });
+
+  // Phase 12 (web): a real-device runaway confirmed via remoteLogger
+  // breadcrumbs — the panel toggling to hidden (isActive false) and back
+  // made react-native-web's SectionList misreport its viewport as "near
+  // the start", firing onStartReached even while hidden. Every OTHER gate
+  // here had already passed (hasAnchoredAlready/hasUserScrolled persist
+  // across a hide/show toggle, since the component never unmounts), so
+  // isActive is the only thing that blocked it. Logged as a burst of 7
+  // auto-loads in under 2 seconds, ballooning 9 sections to 201.
+  it('refuses while the panel is not the active one, even if every other gate would otherwise allow it', () => {
+    expect(canAutoLoadMorePages(false, true, true, false, true, 0, 2)).toBe(false);
   });
 
   it('models the exact runaway-mount scenario: repeated onStartReached firings before anchoring or scrolling never trigger a single fetch', () => {
     let fetchCount = 0;
     const hasAnchoredAlready = false; // list sits at offset 0 before the anchor effect has run
     for (let i = 0; i < 10; i++) {
-      if (canAutoLoadMorePages(hasAnchoredAlready, true, false, false, 0, 2)) fetchCount += 1;
+      if (canAutoLoadMorePages(true, hasAnchoredAlready, true, false, false, 0, 2)) fetchCount += 1;
     }
     expect(fetchCount).toBe(0);
   });
@@ -475,8 +487,8 @@ describe('canAutoLoadMorePages', () => {
   it('models the mount-time burst-in-both-directions scenario: anchored but never actually scrolled, onStartReached AND onEndReached both firing repeatedly never trigger a single fetch', () => {
     let fetchCount = 0;
     for (let i = 0; i < 10; i++) {
-      if (canAutoLoadMorePages(true, true, false, false, 0, 2)) fetchCount += 1; // onStartReached
-      if (canAutoLoadMorePages(true, true, false, false, 0, 2)) fetchCount += 1; // onEndReached
+      if (canAutoLoadMorePages(true, true, true, false, false, 0, 2)) fetchCount += 1; // onStartReached
+      if (canAutoLoadMorePages(true, true, true, false, false, 0, 2)) fetchCount += 1; // onEndReached
     }
     expect(fetchCount).toBe(0);
   });
@@ -490,7 +502,7 @@ describe('canAutoLoadMorePages', () => {
     // more than an instant, but the counter is never reset because the
     // list never reports being away from the edge again afterward.
     for (let i = 0; i < 20; i++) {
-      if (canAutoLoadMorePages(true, true, false, true, autoLoadCount, 2)) {
+      if (canAutoLoadMorePages(true, true, true, false, true, autoLoadCount, 2)) {
         autoLoadCount += 1;
         fetchCount += 1;
       }
@@ -500,9 +512,9 @@ describe('canAutoLoadMorePages', () => {
 
   it('with the production cap, allows a fresh batch again after the count has been reset (simulating a genuine away-from-edge scroll)', () => {
     let autoLoadCount = MAX_AUTO_LOAD_PAGES_SINCE_RESET; // capped out
-    expect(canAutoLoadMorePages(true, true, false, true, autoLoadCount, MAX_AUTO_LOAD_PAGES_SINCE_RESET)).toBe(false);
+    expect(canAutoLoadMorePages(true, true, true, false, true, autoLoadCount, MAX_AUTO_LOAD_PAGES_SINCE_RESET)).toBe(false);
     autoLoadCount = 0; // onScroll reset it after a genuine away-from-edge scroll
-    expect(canAutoLoadMorePages(true, true, false, true, autoLoadCount, MAX_AUTO_LOAD_PAGES_SINCE_RESET)).toBe(true);
+    expect(canAutoLoadMorePages(true, true, true, false, true, autoLoadCount, MAX_AUTO_LOAD_PAGES_SINCE_RESET)).toBe(true);
   });
 });
 

@@ -91,8 +91,16 @@ if (!html.includes('rel="manifest"')) {
   // Native iOS/Android are entirely unaffected — this is DOM/CSS-only.
   html = html.replace(
     'html,\n      body {\n        height: 100%;\n      }',
-    'html,\n      body {\n        height: 100%;\n        height: 100dvh;\n        height: var(--app-vh, 100dvh);\n      }',
+    'html,\n      body {\n        height: 100%;\n        height: 100dvh;\n        height: var(--app-vh, 100dvh);\n        background-color: #0A0A0D;\n      }',
   );
+  // Neither html nor body ever got an explicit background-color anywhere
+  // in Expo's generated output — confirmed by grepping the full dist/
+  // output for it after two rounds of height-only fixes above didn't
+  // resolve a real-device white strip. Whatever the exact remaining gap
+  // is (a sub-pixel rounding difference, a genuinely unresolved dvh edge
+  // case, anything else), it's the raw browser default (white) showing
+  // through rather than this app's own dark background — this makes any
+  // such gap the app's own color instead, regardless of its cause.
 
   const injected = `
     <link rel="manifest" href="/manifest.json">
