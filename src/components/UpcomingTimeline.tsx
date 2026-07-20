@@ -19,6 +19,7 @@ import { colors, spacing } from '../theme/theme';
 import { getErrorMessage, isForceRequiredError } from '../utils/errors';
 import { confirmAsync } from '../utils/confirmAsync';
 import { appAlert } from '../utils/appAlert';
+import { logEvent } from '../utils/remoteLogger';
 import {
   buildUpcomingSections,
   canAutoLoadMorePages,
@@ -226,11 +227,12 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
   // that actually has something, rather than a blank "Nothing releasing
   // today" placeholder.
   const scrollToTodaySection = useCallback(
-    (animated: boolean) => {
+    (animated: boolean, reason: 'initial_anchor' | 'tab_reselect') => {
       const anchorSectionIndex = findAnchorSectionIndex(sections);
       if (anchorSectionIndex === -1) return;
       scrollToTodayRetriesRef.current = 0;
       markProgrammaticScroll();
+      logEvent('upcoming_scroll_to_today', { reason, animated, anchorSectionIndex, sectionsCount: sections.length });
       listRef.current?.scrollToLocation({ sectionIndex: anchorSectionIndex, itemIndex: 0, animated, viewOffset: 0 });
     },
     [sections, markProgrammaticScroll],
@@ -253,14 +255,14 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
   useEffect(() => {
     if (!shouldPerformInitialAnchor({ isActive, hasLaidOut, hasAnchoredAlready: hasAnchoredToToday.current, sections })) return;
     hasAnchoredToToday.current = true;
-    scrollToTodaySection(false);
+    scrollToTodaySection(false, 'initial_anchor');
   }, [isActive, hasLaidOut, sections, scrollToTodaySection]);
 
   // Exposed to WatchlistScreen's single tab-reselect dispatcher — see
   // WatchlistScreen.tsx. Deliberately NOT gated by hasAnchoredToToday: a
   // reselect is a fresh, explicit user action every time, not the
   // one-shot automatic entry anchor above.
-  useImperativeHandle(ref, () => ({ scrollToToday: () => scrollToTodaySection(true) }), [scrollToTodaySection]);
+  useImperativeHandle(ref, () => ({ scrollToToday: () => scrollToTodaySection(true, 'tab_reselect') }), [scrollToTodaySection]);
 
   // Bounded fallback for VirtualizedList's scrollToIndex-without-
   // getItemLayout failure mode (see Phase 8) — retries the same call once
@@ -270,6 +272,7 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
   const handleScrollToIndexFailed = useCallback(() => {
     if (!canRetryScrollToToday(scrollToTodayRetriesRef.current, MAX_SCROLL_TO_TODAY_RETRIES)) return;
     scrollToTodayRetriesRef.current += 1;
+    logEvent('upcoming_scroll_retry', { retryCount: scrollToTodayRetriesRef.current });
     setTimeout(() => {
       const anchorSectionIndex = findAnchorSectionIndex(sections);
       if (anchorSectionIndex === -1) return;
@@ -421,6 +424,7 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
           // canAutoLoadMorePages and the onScroll handler below.
           if (canAutoLoadMorePages(hasAnchoredToToday.current, hasPreviousPage, isFetchingPreviousPage, hasUserScrolled.current, autoPreviousLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
             autoPreviousLoadCount.current += 1;
+            logEvent('upcoming_auto_load', { direction: 'previous', autoLoadCount: autoPreviousLoadCount.current });
             void fetchPreviousPage();
           }
         }}
@@ -429,6 +433,7 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
           if (isProgrammaticScrollRef.current) return;
           if (canAutoLoadMorePages(hasAnchoredToToday.current, hasNextPage, isFetchingNextPage, hasUserScrolled.current, autoNextLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
             autoNextLoadCount.current += 1;
+            logEvent('upcoming_auto_load', { direction: 'next', autoLoadCount: autoNextLoadCount.current });
             void fetchNextPage();
           }
         }}
