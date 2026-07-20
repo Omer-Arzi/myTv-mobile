@@ -404,6 +404,19 @@ export const MAX_AUTO_LOAD_PAGES_SINCE_RESET = 2;
 // more than one card's height, so a couple of cards' worth of genuine
 // scrolling away from the boundary counts as "not stuck there", without
 // being so large that just reading near an edge keeps the cap engaged.
+//
+// Phase 14: this threshold alone isn't enough — the caller
+// (UpcomingTimeline.tsx's onScroll) must also skip the reset entirely
+// while isProgrammaticScrollRef is set, not just gate the hasUserScrolled
+// latch by it. Confirmed via a real session's remoteLogger breadcrumbs:
+// autoPreviousLoadCount kept resetting to 0 almost every single time
+// (logged autoLoadCount values of 1,1,1,1,2,1,1,2... instead of climbing
+// to MAX_AUTO_LOAD_PAGES_SINCE_RESET and stopping), because prepending a
+// page itself fires an onScroll event reporting "away from start" (web
+// doesn't compensate scroll position on prepend/append — the same
+// limitation noted throughout this file), and that self-inflicted event
+// was resetting the very counter meant to cap it. 32 items became 523
+// across 9 pages in under 5 seconds from "scrolling just a little."
 export const SCROLL_RESET_DISTANCE_PX = 200;
 
 export function isScrolledAwayFromStart(contentOffsetY: number): boolean {

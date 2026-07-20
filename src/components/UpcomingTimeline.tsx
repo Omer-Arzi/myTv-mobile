@@ -466,6 +466,21 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
           if (canAutoLoadMorePages(isActiveRef.current, hasAnchoredToToday.current, hasPreviousPage, isFetchingPreviousPage, hasUserScrolled.current, autoPreviousLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
             autoPreviousLoadCount.current += 1;
             logEvent('upcoming_auto_load', { direction: 'previous', autoLoadCount: autoPreviousLoadCount.current });
+            // Phase 14: confirmed via remoteLogger breadcrumbs from a real
+            // session — autoPreviousLoadCount kept resetting to 0 (logged
+            // autoLoadCount values of 1,1,1,1,2,1,1,2...) almost every time,
+            // never reliably reaching MAX_AUTO_LOAD_PAGES_SINCE_RESET,
+            // because prepending a page shifts content without web
+            // properly compensating scroll position (the same
+            // maintainVisibleContentPosition limitation noted above) —
+            // that shift itself fires onScroll reporting "away from start",
+            // which the handler below (correctly, for a REAL user scroll)
+            // treats as a reset signal. markProgrammaticScroll() marks the
+            // onScroll events this fetch's own content-shift produces as
+            // ours, not a genuine user scroll, so the cap can no longer be
+            // defeated by its own prepended content — a real user scroll
+            // still resets it normally once this suppression window ends.
+            markProgrammaticScroll();
             void fetchPreviousPage();
           }
         }}
@@ -475,6 +490,7 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
           if (canAutoLoadMorePages(isActiveRef.current, hasAnchoredToToday.current, hasNextPage, isFetchingNextPage, hasUserScrolled.current, autoNextLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
             autoNextLoadCount.current += 1;
             logEvent('upcoming_auto_load', { direction: 'next', autoLoadCount: autoNextLoadCount.current });
+            markProgrammaticScroll();
             void fetchNextPage();
           }
         }}
@@ -501,8 +517,17 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
           const awayFromStart = isScrolledAwayFromStart(contentOffset.y);
           const awayFromEnd = isScrolledAwayFromEnd(contentOffset.y, contentSize.height, layoutMeasurement.height);
           if ((awayFromStart || awayFromEnd) && !isProgrammaticScrollRef.current) hasUserScrolled.current = true;
-          if (awayFromStart) autoPreviousLoadCount.current = 0;
-          if (awayFromEnd) autoNextLoadCount.current = 0;
+          // Phase 14: these resets must respect isProgrammaticScrollRef too
+          // (the hasUserScrolled latch above already did) — an auto-load's
+          // own content-prepend fires onScroll reporting "away from start"
+          // on web (scroll position isn't compensated), and resetting the
+          // cap unconditionally on that self-inflicted event is exactly
+          // what let the cap be defeated every time (see onStartReached's
+          // markProgrammaticScroll call, added alongside this fix): each
+          // load reset its own counter back to 0 before the next one could
+          // ever accumulate past it.
+          if (awayFromStart && !isProgrammaticScrollRef.current) autoPreviousLoadCount.current = 0;
+          if (awayFromEnd && !isProgrammaticScrollRef.current) autoNextLoadCount.current = 0;
         }}
       />
     </Screen>
