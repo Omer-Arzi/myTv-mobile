@@ -54,12 +54,15 @@ const MAX_SCROLL_TO_TODAY_RETRIES = 6;
 // past window (Phase 10), this makes it likely Today's section is already
 // within the very first render pass, so the mount-time anchor typically
 // succeeds on its first scrollToLocation call with no visible retry
-// "settling" at all. Reduced from 30 to 16 in Phase 12 (matching
-// WatchListPanel's own value) after a real-device crash traced to a large
-// concurrent poster-image decode burst on first render — 16 still
-// comfortably covers the observed anchor index (3, with a 9-section
-// initial window) with real margin to spare.
-const INITIAL_NUM_TO_RENDER = 16;
+// "settling" at all. Briefly reduced to 16 in Phase 12 on a since-disproven
+// "large real account" theory for a real-device crash — the
+// upcoming_data_ready breadcrumb added in that same pass showed the real
+// account only has totalItemCount=32 (matching local test data almost
+// exactly), and 16 measurably reintroduced Phase 10's scrollToIndex-retry
+// behavior (anchorSectionIndex=3 no longer comfortably fit). Reverted to
+// 30 — the actual crash cause is still open, tracked by that same
+// breadcrumb for next time.
+const INITIAL_NUM_TO_RENDER = 30;
 // How long a scrollToLocation call suppresses onScroll from latching
 // hasUserScrolled AND blocks onStartReached/onEndReached from auto-loading
 // at all — generous relative to a long *animated* scroll's real duration

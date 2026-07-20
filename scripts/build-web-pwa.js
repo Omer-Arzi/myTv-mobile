@@ -91,8 +91,26 @@ if (!html.includes('rel="manifest"')) {
   // Native iOS/Android are entirely unaffected — this is DOM/CSS-only.
   html = html.replace(
     'html,\n      body {\n        height: 100%;\n      }',
-    'html,\n      body {\n        height: 100%;\n        height: 100dvh;\n        height: var(--app-vh, 100dvh);\n        background-color: #0A0A0D;\n      }',
+    'html,\n      body {\n        height: 100%;\n        height: 100dvh;\n        height: var(--app-vh, 100dvh);\n        background-color: #0A0A0D;\n        overscroll-behavior: none;\n      }',
   );
+  // A real-device report showed the black-gap fix work correctly on a
+  // fresh load, then flip back to WHITE mid-session right after a rapid
+  // burst of tab/mode switching landed on an unexpected screen — then
+  // fixed itself again on the next reload. Since background-color is
+  // static CSS with no runtime dependency, it can't spontaneously stop
+  // applying on its own; a reload restoring it rules out a stale
+  // service-worker cache too (the same build is being served throughout).
+  // The one thing that behaves exactly like this — present, then
+  // transiently gone during heavy interaction, then back after reload —
+  // is iOS Safari's rubber-band overscroll: if the page ever becomes even
+  // momentarily scrollable (a layout hiccup during a big re-render, e.g.
+  // a fast tab switch), Safari reveals the area past the document's true
+  // edge, which is the browser's own canvas, not this page's — no
+  // background-color on html/body can paint over something outside the
+  // document itself. `overflow: hidden` (already set on body below)
+  // doesn't reliably block this bounce in every situation on iOS;
+  // `overscroll-behavior: none` is the standard, purpose-built property
+  // for preventing scroll from ever chaining past an element's edges.
   // Neither html nor body ever got an explicit background-color anywhere
   // in Expo's generated output — confirmed by grepping the full dist/
   // output for it after two rounds of height-only fixes above didn't
