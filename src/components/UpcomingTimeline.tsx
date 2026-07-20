@@ -63,6 +63,17 @@ const MAX_SCROLL_TO_TODAY_RETRIES = 6;
 // 30 — the actual crash cause is still open, tracked by that same
 // breadcrumb for next time.
 const INITIAL_NUM_TO_RENDER = 30;
+// Phase 13: RN's own default (21 — roughly 10 "screens" of content above
+// and below the viewport) is tuned for native, where extra off-screen
+// rendered rows are comparatively cheap. On web, a real-device crash
+// happened right after a display:'none' -> visible toggle with no further
+// trace — the same category of bug as the auto-load runaway this file
+// already fixed (a hidden SectionList misreporting its own viewport),
+// just via VirtualizedList's own windowSize-driven rendering this time
+// instead of our pagination logic. A much smaller windowSize caps how
+// much any such over-render can cost, regardless of what triggers it —
+// see WatchListPanel.tsx, which uses the same value for the same reason.
+const WINDOW_SIZE = 5;
 // How long a scrollToLocation call suppresses onScroll from latching
 // hasUserScrolled AND blocks onStartReached/onEndReached from auto-loading
 // at all — generous relative to a long *animated* scroll's real duration
@@ -414,6 +425,7 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
         keyExtractor={(row) => row.key}
         stickySectionHeadersEnabled={false}
         initialNumToRender={INITIAL_NUM_TO_RENDER}
+        windowSize={WINDOW_SIZE}
         renderSectionHeader={({ section }) => <SectionHeader title={section.title} />}
         renderItem={({ item: row, section }) =>
           row.type === 'empty' ? (

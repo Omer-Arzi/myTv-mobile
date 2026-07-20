@@ -1,4 +1,4 @@
-import { forwardRef, useCallback } from 'react';
+import { forwardRef, useCallback, useEffect } from 'react';
 import { SectionList, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -10,6 +10,7 @@ import { RootStackParamList } from '../navigation/types';
 import { colors, spacing } from '../theme/theme';
 import { groupWatchlistItems } from '../utils/groupWatchlistItems';
 import { formatAttentionWarningLabel } from '../utils/format';
+import { logEvent } from '../utils/remoteLogger';
 import { Screen } from './Screen';
 import { LoadingState } from './LoadingState';
 import { ErrorState } from './ErrorState';
@@ -24,6 +25,18 @@ type Navigation = NativeStackNavigationProp<RootStackParamList>;
 // wider (poster + title + badges) than Upcoming's, so fewer fit in one
 // initial screenful.
 const WATCHLIST_INITIAL_NUM_TO_RENDER = 16;
+// Phase 13: RN's own default (21 — roughly 10 "screens" of content above
+// and below the viewport) is tuned for native, where extra off-screen
+// rendered rows are comparatively cheap. On web, a real-device crash
+// happened right after switching BACK to this panel (display:'none' ->
+// visible) with no further trace — the same "hidden SectionList
+// misreports its own viewport, then over-renders once shown again"
+// category of bug as Upcoming's auto-load runaway (see
+// upcomingGrouping.ts), just via VirtualizedList's own windowSize-driven
+// rendering instead of our own pagination logic this time. A much smaller
+// windowSize caps how much any such over-render can cost, regardless of
+// what triggers it.
+const WINDOW_SIZE = 5;
 
 // The Watch List mode of the Shows tab (WatchlistScreen) — same sections,
 // catalog behavior, actions, sorting, and state management as always, but a
@@ -59,6 +72,16 @@ export const WatchListPanel = forwardRef<SectionList<WatchlistItem>>(function Wa
     [navigation],
   );
 
+  // Mirrors UpcomingTimeline's upcoming_data_ready breadcrumb — logs data
+  // volume right before it actually renders, so a real crash (the renderer
+  // dying mid-paint) at least leaves this as the last trace before
+  // silence, same rationale as Phase 12's investigation there.
+  useEffect(() => {
+    if (data && data.length > 0) {
+      logEvent('watchlist_data_ready', { itemCount: data.length });
+    }
+  }, [data]);
+
   if (isLoading) return <LoadingState />;
   if (isError) return <ErrorState error={error} onRetry={refetch} />;
   if (!data) return <LoadingState />;
@@ -73,6 +96,7 @@ export const WatchListPanel = forwardRef<SectionList<WatchlistItem>>(function Wa
         sections={sections}
         keyExtractor={(item) => item.id}
         initialNumToRender={WATCHLIST_INITIAL_NUM_TO_RENDER}
+        windowSize={WINDOW_SIZE}
         stickySectionHeadersEnabled={false}
         renderSectionHeader={({ section }) => <SectionHeader title={section.title} />}
         renderItem={({ item }) => (
