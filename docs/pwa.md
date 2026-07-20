@@ -208,25 +208,21 @@ means:
   auth-gated ones) to a URL — a real, separate scope of work the task's
   own constraints ("do not rewrite unrelated architecture") argue against
   doing incidentally here.
-- **Maskable icon (and all current icons) are placeholder-derived.**
-  `assets/icon.png` itself is a generic placeholder (visibly not real MyTV
-  branding — confirmed by looking at it), not a temporary "final" logo.
-  Every file under `web-pwa/icons/` is downstream of that same placeholder.
-  **Exactly what to replace once a final logo exists**, and how:
-  1. Replace `assets/icon.png` (1024×1024) with the final artwork — this
-     also feeds the **native** iOS/Android app icons, so getting this one
-     file right covers both platforms.
-  2. Regenerate the PWA-specific derived files from it:
-     `web-pwa/icons/icon-192.png`, `icon-512.png`, `apple-touch-icon.png`
-     (plain resizes), and `icon-maskable-512-PLACEHOLDER.png` (should be
-     regenerated from — ideally — a maskable-safe export the designer
-     provides directly, with intentional safe-zone padding baked into the
-     actual artwork, rather than this pass's mechanical 75%-scale-and-pad
-     placeholder). Rename away the `-PLACEHOLDER` suffix once that happens
-     and update the one reference to it in `web-pwa/manifest.json`.
-  3. No code/build changes are needed beyond replacing these image files —
-     `scripts/build-web-pwa.js` copies whatever's in `web-pwa/icons/`
-     as-is into every build.
+- **Resolved: icons are now the real MyTV mark** (a geometric "M" monogram,
+  drawn directly in the app's own tokens — `#0A0A0D` ground,
+  a blue-tinted near-white stroke `#D7DEF7`). All of `assets/icon.png`,
+  `assets/favicon.png`, `assets/splash-icon.png`, the three
+  `assets/android-icon-*.png` layers, and every file under `web-pwa/icons/`
+  (including `icon-maskable-512.png`, no longer `-PLACEHOLDER`) were
+  regenerated from one shared SVG source, each with safe margins for its
+  own mask (Android adaptive icon's ~66% safe circle was the binding
+  constraint; iOS and web maskable icons have more headroom by comparison).
+  No code/build changes were needed — `scripts/build-web-pwa.js` copies
+  whatever's in `web-pwa/icons/` as-is into every build. Vector sources for
+  all four layers (icon-with-bg, foreground-only, background-solid,
+  monochrome) live in `assets/brand/monogram-*.svg` — regenerate any PNG at
+  a new size by rendering that SVG at the target resolution rather than
+  scaling an existing raster.
 - **iOS Safari's general storage-eviction behavior** (clearing site data,
   including `localStorage`, after ~7 days of a site/PWA not being opened,
   per WebKit's Intelligent Tracking Prevention) applies here same as any
@@ -248,8 +244,7 @@ means:
    the same way).
 2. Tap the Share icon → "Add to Home Screen".
 3. Confirm the name shown is "MyTV" and the icon matches
-   `apple-touch-icon.png` (currently the placeholder icon — see limitations
-   above) before tapping Add.
+   `apple-touch-icon.png` before tapping Add.
 4. Launch from the new Home Screen icon — it should open without Safari's
    address bar/tab UI.
 
