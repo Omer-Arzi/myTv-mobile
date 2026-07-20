@@ -256,3 +256,42 @@ means:
 3. Confirm the name/icon shown match MyTV before installing.
 4. Launch from the Home Screen/app drawer — opens standalone, no browser
    chrome.
+
+## Addendum: white gap below the tab bar persisted after the 100dvh fix
+
+The `100dvh` height fix above (commit `f37cce4`) reduced but did not fully
+eliminate a white strip below the bottom tab bar on a real installed iPhone
+PWA, confirmed via a real-device screenshot. Root cause turned out to be one
+level deeper than the CSS unit itself:
+
+`react-native-safe-area-context`'s web provider
+(`node_modules/react-native-safe-area-context/src/NativeSafeAreaProvider.web.tsx`)
+derives the app's entire layout frame from
+`document.documentElement.offsetHeight`, read **once** at mount (plus one
+delayed correction ~50ms later via a CSS-transition trick) — there is no
+resize listener at all (confirmed identical in the latest published version,
+5.8.0, so this isn't a fixed-upstream bug). `100dvh` makes the `<html>`
+element's *eventual* height correct, but nothing guarantees it has already
+resolved to the true edge-to-edge standalone-mode height at the exact moment
+that one-time measurement runs. If it captures a shorter value, the app
+permanently sizes itself smaller than the physical screen — the leftover
+strip is literally unstyled page background (default white) outside the
+React tree's rendered box, not a native home-indicator artifact.
+
+**Fix** (`scripts/build-web-pwa.js`): an inline, synchronous script in
+`<head>` (runs before the deferred app bundle even starts downloading) sets
+a `--app-vh` custom property from `window.visualViewport.height` — supported
+since iOS 13, well before `dvh` existed — and keeps it in sync via
+`resize`/`orientationchange`/`visualViewport resize` listeners. The height
+rule is now a three-tier progressive-enhancement chain:
+`height: 100%` → `height: 100dvh` → `height: var(--app-vh, 100dvh)`, each
+one only taking effect where the previous one is supported, so by the time
+`react-native-safe-area-context` reads `offsetHeight`, it reads the real
+measured viewport rather than a CSS unit that may not have settled yet.
+
+**Verification limitation**: this could only be checked structurally
+(confirmed the script/CSS ships correctly in `dist/index.html`, no
+regressions in Chromium/WebKit via Playwright) — the actual bug is specific
+to real iOS standalone display mode, which Playwright's device emulation
+does not reproduce (no browser-chrome-hiding behavior, no real home
+indicator). **Needs a real-device re-check** after the next deploy.

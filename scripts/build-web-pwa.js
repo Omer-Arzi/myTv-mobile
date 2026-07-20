@@ -70,16 +70,28 @@ if (!html.includes('rel="manifest"')) {
   // shorter than the physical screen: a white gap (the page's default
   // background) below the app, and the bottom tab bar (fixed height)
   // squeezed into less room than its own layout expects, clipping labels.
-  // `100dvh` is the current, purpose-built fix for exactly this — but it's
-  // added as a SECOND declaration after the existing "100%", not a
-  // replacement: an unsupported value is ignored outright by the CSS
-  // parser (not treated as invalid-so-fall-back-to-auto), so older
-  // browsers silently keep the working "100%" and only browsers that
-  // understand dvh take the later, correct declaration. Native iOS/Android
-  // are entirely unaffected — this is DOM/CSS-only.
+  // `100dvh` alone is not sufficient here: react-native-safe-area-context's
+  // web provider (NativeSafeAreaProvider.web.tsx) derives the app's entire
+  // layout frame from `document.documentElement.offsetHeight`, read ONCE
+  // at mount (plus one delayed correction ~50ms later) with no resize
+  // listener at all — if `100dvh` hasn't yet resolved to the true
+  // edge-to-edge standalone-mode height at that exact moment, the app
+  // permanently sizes itself smaller than the real screen. `100dvh` is
+  // kept as a second, CSS-only declaration (progressive enhancement, see
+  // below), but the actual fix is the `--app-vh` custom property set from
+  // `window.visualViewport` by the inline script below, added as a THIRD
+  // declaration so it wins whenever JS has run: it measures the real
+  // visual viewport directly (supported since iOS 13, well before `dvh`
+  // existed) and is kept in sync on resize/orientation change, so
+  // react-native-safe-area-context's one-time measurement reads the
+  // correct value regardless of `dvh` support or timing. Each declaration
+  // is additive, not a replacement — an unsupported value/property is
+  // ignored outright by the CSS parser (not invalid-so-fall-back-to-auto),
+  // so browsers missing a later feature keep the last one they understood.
+  // Native iOS/Android are entirely unaffected — this is DOM/CSS-only.
   html = html.replace(
     'html,\n      body {\n        height: 100%;\n      }',
-    'html,\n      body {\n        height: 100%;\n        height: 100dvh;\n      }',
+    'html,\n      body {\n        height: 100%;\n        height: 100dvh;\n        height: var(--app-vh, 100dvh);\n      }',
   );
 
   const injected = `
@@ -89,6 +101,27 @@ if (!html.includes('rel="manifest"')) {
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="MyTV">
+    <script>
+      // Sets --app-vh from the real visual viewport (supported since iOS
+      // 13), read by the height rule injected into #expo-reset above. Runs
+      // synchronously here in <head>, before the deferred app bundle even
+      // starts downloading, so react-native-safe-area-context's own
+      // one-time mount measurement (document.documentElement.offsetHeight)
+      // always sees the correct value. Kept in sync afterwards too, since
+      // that library never re-measures on its own.
+      (function () {
+        function setAppVh() {
+          var h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+          document.documentElement.style.setProperty('--app-vh', h + 'px');
+        }
+        setAppVh();
+        window.addEventListener('resize', setAppVh);
+        window.addEventListener('orientationchange', setAppVh);
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener('resize', setAppVh);
+        }
+      })();
+    </script>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
