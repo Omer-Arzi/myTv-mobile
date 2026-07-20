@@ -1,24 +1,11 @@
-import { forwardRef, useCallback, useRef, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useScrollToTop } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useQuery } from '@tanstack/react-query';
-import { getWatchlist } from '../api/endpoints/watchlist';
-import { queryKeys } from '../api/queryKeys';
-import { Screen } from '../components/Screen';
-import { LoadingState } from '../components/LoadingState';
-import { ErrorState } from '../components/ErrorState';
-import { SectionHeader } from '../components/SectionHeader';
-import { SeriesCard } from '../components/SeriesCard';
-import { EmptyState } from '../components/EmptyState';
+import { useScrollToTop } from '@react-navigation/native';
+import { WatchListPanel } from '../components/WatchListPanel';
 import { UpcomingTimeline, UpcomingTimelineHandle } from '../components/UpcomingTimeline';
-import { RootStackParamList } from '../navigation/types';
 import { colors, radii, spacing, typography } from '../theme/theme';
-import { groupWatchlistItems } from '../utils/groupWatchlistItems';
-import { formatAttentionWarningLabel } from '../utils/format';
-
-type Navigation = NativeStackNavigationProp<RootStackParamList>;
+import { WatchlistItem } from '../api/types';
 
 type ShowsMode = 'watchlist' | 'upcoming';
 
@@ -33,7 +20,7 @@ type ShowsMode = 'watchlist' | 'upcoming';
 // "Frontend structure".
 export function WatchlistScreen() {
   const [mode, setMode] = useState<ShowsMode>('watchlist');
-  const watchListScrollRef = useRef<ScrollView>(null);
+  const watchListScrollRef = useRef<SectionList<WatchlistItem>>(null);
   const upcomingRef = useRef<UpcomingTimelineHandle>(null);
 
   // Exactly ONE useScrollToTop registration for the whole Shows tab —
@@ -47,7 +34,7 @@ export function WatchlistScreen() {
   const scrollDispatcherRef = useRef<{ scrollToTop: () => void }>({ scrollToTop: () => {} });
   scrollDispatcherRef.current.scrollToTop = () => {
     if (mode === 'watchlist') {
-      watchListScrollRef.current?.scrollTo({ y: 0, animated: true });
+      watchListScrollRef.current?.scrollToLocation({ sectionIndex: 0, itemIndex: 0, animated: true, viewOffset: 0 });
     } else {
       upcomingRef.current?.scrollToToday();
     }
@@ -84,59 +71,6 @@ export function WatchlistScreen() {
     </SafeAreaView>
   );
 }
-
-// The original Watch List body, unchanged — existing sections, catalog
-// behavior, actions, sorting, and state management are all untouched; only
-// its mount point moved (from being WatchlistScreen's entire body to one of
-// two toggled panels inside it). Now forwardRefs its underlying ScrollView
-// up to WatchlistScreen instead of calling useScrollToTop itself — see the
-// single-dispatcher comment above.
-const WatchListPanel = forwardRef<ScrollView>(function WatchListPanel(_props, ref) {
-  const navigation = useNavigation<Navigation>();
-  const { data, isLoading, isError, error, refetch, isRefetching } = useQuery({
-    queryKey: queryKeys.watchlist,
-    queryFn: getWatchlist,
-  });
-
-  const openSeries = useCallback(
-    (seriesId: string, title: string) => {
-      navigation.navigate('SeriesDetail', { seriesId, title });
-    },
-    [navigation],
-  );
-
-  if (isLoading) return <LoadingState />;
-  if (isError) return <ErrorState error={error} onRetry={refetch} />;
-  if (!data) return <LoadingState />;
-
-  const sections = groupWatchlistItems(data);
-
-  return (
-    <Screen ref={ref} edges={[]} refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.accent} />}>
-      {sections.length === 0 ? (
-        <EmptyState message="Your active library is empty. Series you're watching, caught up on, or planning to start show up here." />
-      ) : (
-        sections.map((section) => (
-          <View key={section.status}>
-            <SectionHeader title={section.title} />
-            {section.items.map((item) => (
-              <SeriesCard
-                key={item.id}
-                variant="list"
-                title={item.series.title}
-                posterUrl={item.series.posterUrl}
-                releaseStatus={item.series.releaseStatus}
-                userStatus={item.userStatus}
-                warning={item.attentionReasonCode ? formatAttentionWarningLabel(item.attentionReasonCode) : null}
-                onPress={() => openSeries(item.series.id, item.series.title)}
-              />
-            ))}
-          </View>
-        ))
-      )}
-    </Screen>
-  );
-});
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },

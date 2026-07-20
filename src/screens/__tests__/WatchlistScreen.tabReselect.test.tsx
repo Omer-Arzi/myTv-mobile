@@ -1,19 +1,26 @@
 // Covers items 5/6 of the Phase 8 fix (docs/upcoming-timeline-todo.md):
 // re-selecting the already-active Shows tab must dispatch to exactly ONE
 // target depending on which mode is currently selected — Watch List's
-// ScrollView when WATCH LIST is active, UpcomingTimeline's scrollToToday()
+// SectionList when WATCH LIST is active, UpcomingTimeline's scrollToToday()
 // when UPCOMING is active — never both, via WatchlistScreen's single
 // useScrollToTop + dispatcher-ref pattern (replacing the earlier two-
 // independent-hooks design that risked firing both simultaneously).
 //
-// Both Screen and UpcomingTimeline are mocked with minimal forwardRef fakes
-// exposing a spy-able imperative handle — this exercises WatchlistScreen's
-// own dispatch logic in isolation (which target gets called, and only one),
-// not Screen's real ScrollView internals or UpcomingTimeline's internal
-// query/SectionList machinery (that's covered separately by
-// upcomingGrouping.test.ts's pure decision-logic tests). This RNTL version
-// (14.x) does not expose UNSAFE_getByType/UNSAFE_root for grabbing a real
-// host ScrollView instance, so mocking Screen is the direct alternative.
+// Both WatchListPanel and UpcomingTimeline are mocked with minimal
+// forwardRef fakes exposing a spy-able imperative handle — this exercises
+// WatchlistScreen's own dispatch logic in isolation (which target gets
+// called, and only one), not either panel's real SectionList/query
+// internals (that's covered separately: WatchListPanel by real-device
+// verification, per its own file's comment, and Upcoming's decision logic
+// by upcomingGrouping.test.ts). This RNTL version (14.x) does not expose
+// UNSAFE_getByType/UNSAFE_root for grabbing a real host SectionList
+// instance, so mocking each panel's module export is the direct
+// alternative — mocking 'react-native' itself instead (to fake just its
+// SectionList export) was tried first and rejected: spreading the actual
+// module's exports (`{...jest.requireActual('react-native')}`) forces
+// react-native's internal lazy-getter exports to all evaluate eagerly,
+// which pulls in native modules (DevMenu) jest's environment can't
+// satisfy.
 
 import { forwardRef, useImperativeHandle } from 'react';
 import { Text } from 'react-native';
@@ -26,13 +33,15 @@ import { getWatchlist } from '../../api/endpoints/watchlist';
 
 jest.mock('../../api/endpoints/watchlist');
 
-const mockScrollTo = jest.fn();
-jest.mock('../../components/Screen', () => {
+const mockScrollToLocation = jest.fn();
+jest.mock('../../components/WatchListPanel', () => {
   const { forwardRef: fr, useImperativeHandle: uih } = require('react');
+  const { Text: RNText } = require('react-native');
+  const { createElement } = require('react');
   return {
-    Screen: fr(({ children }: { children: React.ReactNode }, ref: unknown) => {
-      uih(ref, () => ({ scrollTo: mockScrollTo }));
-      return children;
+    WatchListPanel: fr((_props: unknown, ref: unknown) => {
+      uih(ref, () => ({ scrollToLocation: mockScrollToLocation }));
+      return createElement(RNText, null, 'Watch List Mock');
     }),
   };
 });
@@ -83,7 +92,7 @@ function flushRAF() {
 beforeEach(() => {
   mockGetWatchlist.mockReset();
   mockGetWatchlist.mockResolvedValue([]);
-  mockScrollTo.mockClear();
+  mockScrollToLocation.mockClear();
   mockScrollToToday.mockClear();
 });
 
@@ -97,8 +106,10 @@ describe('WatchlistScreen — mode-specific tab reselect (Phase 8)', () => {
       await flushRAF();
     });
 
-    expect(mockScrollTo).toHaveBeenCalledTimes(1);
-    expect(mockScrollTo).toHaveBeenCalledWith(expect.objectContaining({ y: 0 }));
+    expect(mockScrollToLocation).toHaveBeenCalledTimes(1);
+    expect(mockScrollToLocation).toHaveBeenCalledWith(
+      expect.objectContaining({ sectionIndex: 0, itemIndex: 0 }),
+    );
     expect(mockScrollToToday).not.toHaveBeenCalled();
   });
 
@@ -118,7 +129,7 @@ describe('WatchlistScreen — mode-specific tab reselect (Phase 8)', () => {
     });
 
     expect(mockScrollToToday).toHaveBeenCalledTimes(1);
-    expect(mockScrollTo).not.toHaveBeenCalled();
+    expect(mockScrollToLocation).not.toHaveBeenCalled();
   });
 
   it('switching tabs away and back does not itself trigger either scroll target (only an actual reselect does)', async () => {
@@ -136,7 +147,7 @@ describe('WatchlistScreen — mode-specific tab reselect (Phase 8)', () => {
       await flushRAF();
     });
 
-    expect(mockScrollTo).not.toHaveBeenCalled();
+    expect(mockScrollToLocation).not.toHaveBeenCalled();
     expect(mockScrollToToday).not.toHaveBeenCalled();
   });
 
@@ -158,7 +169,7 @@ describe('WatchlistScreen — mode-specific tab reselect (Phase 8)', () => {
       await flushRAF();
     });
 
-    expect(mockScrollTo).toHaveBeenCalledTimes(1);
+    expect(mockScrollToLocation).toHaveBeenCalledTimes(1);
     expect(mockScrollToToday).not.toHaveBeenCalled();
   });
 });
