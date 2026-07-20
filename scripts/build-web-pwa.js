@@ -63,6 +63,25 @@ if (!html.includes('rel="manifest"')) {
     '<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover" />',
   );
 
+  // Expo/react-native-web's own generated reset sizes html/body/#root via
+  // percentage height ("height: 100%"), which iOS Safari — especially in
+  // standalone (Add to Home Screen) mode — doesn't reliably resolve to the
+  // true dynamic visual viewport. The whole app can end up rendering
+  // shorter than the physical screen: a white gap (the page's default
+  // background) below the app, and the bottom tab bar (fixed height)
+  // squeezed into less room than its own layout expects, clipping labels.
+  // `100dvh` is the current, purpose-built fix for exactly this — but it's
+  // added as a SECOND declaration after the existing "100%", not a
+  // replacement: an unsupported value is ignored outright by the CSS
+  // parser (not treated as invalid-so-fall-back-to-auto), so older
+  // browsers silently keep the working "100%" and only browsers that
+  // understand dvh take the later, correct declaration. Native iOS/Android
+  // are entirely unaffected — this is DOM/CSS-only.
+  html = html.replace(
+    'html,\n      body {\n        height: 100%;\n      }',
+    'html,\n      body {\n        height: 100%;\n        height: 100dvh;\n      }',
+  );
+
   const injected = `
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
