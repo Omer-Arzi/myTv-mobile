@@ -1,0 +1,29 @@
+diff --git a/node_modules/react-native-safe-area-context/src/NativeSafeAreaProvider.web.tsx b/node_modules/react-native-safe-area-context/src/NativeSafeAreaProvider.web.tsx
+index d3eceed..08b4e99 100644
+--- a/node_modules/react-native-safe-area-context/src/NativeSafeAreaProvider.web.tsx
++++ b/node_modules/react-native-safe-area-context/src/NativeSafeAreaProvider.web.tsx
+@@ -54,9 +54,24 @@ export function NativeSafeAreaProvider({
+     };
+     element.addEventListener(getSupportedTransitionEvent(), onEnd);
+     onEnd();
++    // PATCHED (see mobile/patches/ in the MyTV repo for why): the
++    // transitionend-based correction above only fires if the env()-resolved
++    // padding differs from whatever getComputedStyle synchronously reported
++    // on the very same tick the element was created — not guaranteed either
++    // way — and there's no other re-measure path at all, ever, for the rest
++    // of the session. A requestAnimationFrame re-measure guarantees at least
++    // one real paint has happened before reading getComputedStyle again,
++    // independent of whether a CSS transition fired; a resize listener keeps
++    // this live afterwards (window resize, orientation change, or the
++    // visual viewport settling in standalone iOS PWA mode) instead of a
++    // single mount-time snapshot.
++    const raf = requestAnimationFrame(onEnd);
++    window.addEventListener('resize', onEnd);
+     return () => {
+       document.body.removeChild(element);
+       element.removeEventListener(getSupportedTransitionEvent(), onEnd);
++      cancelAnimationFrame(raf);
++      window.removeEventListener('resize', onEnd);
+     };
+   }, [onInsetsChange]);
+ 

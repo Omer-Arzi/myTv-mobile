@@ -54,8 +54,12 @@ const MAX_SCROLL_TO_TODAY_RETRIES = 6;
 // past window (Phase 10), this makes it likely Today's section is already
 // within the very first render pass, so the mount-time anchor typically
 // succeeds on its first scrollToLocation call with no visible retry
-// "settling" at all.
-const INITIAL_NUM_TO_RENDER = 30;
+// "settling" at all. Reduced from 30 to 16 in Phase 12 (matching
+// WatchListPanel's own value) after a real-device crash traced to a large
+// concurrent poster-image decode burst on first render — 16 still
+// comfortably covers the observed anchor index (3, with a 9-section
+// initial window) with real margin to spare.
+const INITIAL_NUM_TO_RENDER = 16;
 // How long a scrollToLocation call suppresses onScroll from latching
 // hasUserScrolled AND blocks onStartReached/onEndReached from auto-loading
 // at all — generous relative to a long *animated* scroll's real duration
@@ -208,6 +212,18 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
   const firstPage = pages[0];
   const lastPage = pages[pages.length - 1];
   const isGloballyEmpty = !isLoading && totalItemCount === 0 && firstPage?.hasMorePast === false && lastPage?.hasMoreFuture === false;
+
+  // Logs data volume right before it actually renders — a real crash (the
+  // renderer dying mid-paint, e.g. from a large concurrent image-decode
+  // burst) leaves no other trace: this is the last breadcrumb we'd see
+  // before silence, closing the gap the Phase 12 investigation hit (the
+  // session went quiet immediately after watchlist_mode_change, before any
+  // other event had a chance to fire).
+  useEffect(() => {
+    if (isActive && totalItemCount > 0) {
+      logEvent('upcoming_data_ready', { totalItemCount, sectionsCount: sections.length, pagesLoaded: pages.length });
+    }
+  }, [isActive, totalItemCount, sections.length, pages.length]);
 
   // Marks the upcoming burst of onScroll events any scrollToLocation call
   // produces as "ours", so the hasUserScrolled latch above doesn't mistake
