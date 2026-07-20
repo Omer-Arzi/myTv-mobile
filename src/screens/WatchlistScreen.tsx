@@ -6,6 +6,7 @@ import { WatchListPanel } from '../components/WatchListPanel';
 import { UpcomingTimeline, UpcomingTimelineHandle } from '../components/UpcomingTimeline';
 import { colors, radii, spacing, typography } from '../theme/theme';
 import { WatchlistItem } from '../api/types';
+import { logEvent } from '../utils/remoteLogger';
 
 type ShowsMode = 'watchlist' | 'upcoming';
 
@@ -50,13 +51,19 @@ export function WatchlistScreen() {
       <View style={styles.switchRow}>
         <Pressable
           style={[styles.switchButton, mode === 'watchlist' && styles.switchButtonActive]}
-          onPress={() => setMode('watchlist')}
+          onPress={() => {
+            logEvent('watchlist_mode_change', { mode: 'watchlist' });
+            setMode('watchlist');
+          }}
         >
           <Text style={[styles.switchLabel, mode === 'watchlist' && styles.switchLabelActive]}>WATCH LIST</Text>
         </Pressable>
         <Pressable
           style={[styles.switchButton, mode === 'upcoming' && styles.switchButtonActive]}
-          onPress={() => setMode('upcoming')}
+          onPress={() => {
+            logEvent('watchlist_mode_change', { mode: 'upcoming' });
+            setMode('upcoming');
+          }}
         >
           <Text style={[styles.switchLabel, mode === 'upcoming' && styles.switchLabelActive]}>UPCOMING</Text>
         </Pressable>
