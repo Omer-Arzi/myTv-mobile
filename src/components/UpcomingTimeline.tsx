@@ -484,7 +484,13 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
             void fetchPreviousPage();
           }
         }}
-        onStartReachedThreshold={2}
+        // Phase 15: was 2 (2 screens' worth of distance from the edge) —
+        // extremely generous given the Today anchor already sits close to
+        // the start by design (only 3 days of past context above it, Phase
+        // 10), so onStartReached could fire off nearly any scroll, not just
+        // one that actually approached the loaded start. 0.5 requires
+        // genuinely nearing the edge before RN considers this "reached."
+        onStartReachedThreshold={0.5}
         onEndReached={() => {
           if (isProgrammaticScrollRef.current) return;
           if (canAutoLoadMorePages(isActiveRef.current, hasAnchoredToToday.current, hasNextPage, isFetchingNextPage, hasUserScrolled.current, autoNextLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
@@ -494,7 +500,8 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
             void fetchNextPage();
           }
         }}
-        onEndReachedThreshold={2}
+        // Phase 15: same reasoning as onStartReachedThreshold above.
+        onEndReachedThreshold={0.5}
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         refreshing={isRefetching}
         onRefresh={() => void refetch()}

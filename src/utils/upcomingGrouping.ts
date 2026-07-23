@@ -78,8 +78,17 @@ export function resolveEffectiveLocalDateKey(item: UpcomingItem): string {
 export const UPCOMING_INITIAL_PAST_DAYS = 3;
 // Initial span kept under the server's 45-day max window (3+30=33).
 export const UPCOMING_INITIAL_FUTURE_DAYS = 30;
-// Subsequent scroll-triggered page size in each direction.
-export const UPCOMING_PAGE_WINDOW_DAYS = 30;
+// Subsequent scroll-triggered page size in each direction. Was 30 — Phase 15
+// shrank it to 10: on web (no maintainVisibleContentPosition compensation on
+// prepend, see SCROLL_RESET_DISTANCE_PX below), a single auto-load's content
+// jump is roughly proportional to this many days' worth of items, and 30
+// days was routinely 60-100+ items appearing under the user in one shot
+// (confirmed via remoteLogger: 26 items/9 sections -> 95 items/33 sections
+// from ONE auto-load, within 3 seconds of landing on Today). 10 keeps a
+// single load's visual jump small enough to not read as "loads lots of past
+// shows and jumps there" while still fetching enough to make continued
+// scrolling feel continuous.
+export const UPCOMING_PAGE_WINDOW_DAYS = 10;
 
 export interface UpcomingWindow {
   from: string;
@@ -417,7 +426,19 @@ export const MAX_AUTO_LOAD_PAGES_SINCE_RESET = 2;
 // limitation noted throughout this file), and that self-inflicted event
 // was resetting the very counter meant to cap it. 32 items became 523
 // across 9 pages in under 5 seconds from "scrolling just a little."
-export const SCROLL_RESET_DISTANCE_PX = 200;
+//
+// Phase 15: raised 200 -> 400. The Today anchor (only UPCOMING_INITIAL_-
+// PAST_DAYS=3 days of past context above it, by design — see Phase 10)
+// already rests fairly close to the list's start on a typical library, so
+// 200px of ordinary scroll "settling" or a small deliberate glance upward
+// could exceed this threshold without the user meaning to request more
+// history at all — immediately latching hasUserScrolled and unlocking
+// onStartReached's auto-load off what was essentially still just "arriving
+// at Today." 400px asks for a clearly deliberate scroll (more than a
+// screen's worth on most devices) before treating it as "the user wants
+// more history," while remaining comfortably below what a real scroll-up
+// gesture covers.
+export const SCROLL_RESET_DISTANCE_PX = 400;
 
 export function isScrolledAwayFromStart(contentOffsetY: number): boolean {
   return contentOffsetY > SCROLL_RESET_DISTANCE_PX;
