@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, LayoutChangeEvent, SectionList, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, AppState, LayoutChangeEvent, Platform, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
@@ -15,7 +16,7 @@ import { ErrorState } from './ErrorState';
 import { EmptyState } from './EmptyState';
 import { SectionHeader } from './SectionHeader';
 import { UpcomingCard } from './UpcomingCard';
-import { colors, spacing } from '../theme/theme';
+import { colors, radii, spacing } from '../theme/theme';
 import { getErrorMessage, isForceRequiredError } from '../utils/errors';
 import { confirmAsync } from '../utils/confirmAsync';
 import { appAlert } from '../utils/appAlert';
@@ -34,6 +35,8 @@ import {
   MAX_AUTO_LOAD_PAGES_SINCE_RESET,
   patchUpcomingItemInPages,
   shouldPerformInitialAnchor,
+  UPCOMING_WEB_LOAD_FUTURE_DAYS,
+  UPCOMING_WEB_LOAD_PAST_DAYS,
   UpcomingRow,
   UpcomingSection,
 } from '../utils/upcomingGrouping';
@@ -208,8 +211,16 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
       queryKey,
       queryFn: ({ pageParam }) => getUpcoming(pageParam),
       initialPageParam: getInitialUpcomingWindow(todayKey),
-      getPreviousPageParam: (firstPage) => (firstPage.hasMorePast ? getPreviousUpcomingWindow(firstPage.from) : undefined),
-      getNextPageParam: (lastPage) => (lastPage.hasMoreFuture ? getNextUpcomingWindow(lastPage.to) : undefined),
+      // Web loads a bigger, more self-explanatory chunk per explicit button
+      // press than native's small scroll-triggered auto-load page size —
+      // see UPCOMING_WEB_LOAD_PAST_DAYS/UPCOMING_WEB_LOAD_FUTURE_DAYS
+      // (Phase 16). Platform.OS is invariant for the process lifetime, so a
+      // plain check here is correct regardless of how many times react-query
+      // calls this.
+      getPreviousPageParam: (firstPage) =>
+        firstPage.hasMorePast ? getPreviousUpcomingWindow(firstPage.from, Platform.OS === 'web' ? UPCOMING_WEB_LOAD_PAST_DAYS : undefined) : undefined,
+      getNextPageParam: (lastPage) =>
+        lastPage.hasMoreFuture ? getNextUpcomingWindow(lastPage.to, Platform.OS === 'web' ? UPCOMING_WEB_LOAD_FUTURE_DAYS : undefined) : undefined,
     });
 
   const pages = data?.pages ?? [];
@@ -324,6 +335,21 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
   const handleListLayout = useCallback((e: LayoutChangeEvent) => {
     if (e.nativeEvent.layout.height > 0) setHasLaidOut(true);
   }, []);
+
+  // Phase 16 — web's explicit "Load earlier releases"/"Load more upcoming"
+  // buttons (see ListHeaderComponent/ListFooterComponent below) call these
+  // directly, replacing scroll-triggered auto-load on web entirely. Logs a
+  // breadcrumb distinct from 'upcoming_auto_load' so Railway logs can tell
+  // the two mechanisms apart.
+  const handleLoadPrevious = useCallback(() => {
+    logEvent('upcoming_manual_load', { direction: 'previous' });
+    void fetchPreviousPage();
+  }, [fetchPreviousPage]);
+
+  const handleLoadNext = useCallback(() => {
+    logEvent('upcoming_manual_load', { direction: 'next' });
+    void fetchNextPage();
+  }, [fetchNextPage]);
 
   const openSeries = useCallback(
     (item: UpcomingItem) => navigation.navigate('SeriesDetail', { seriesId: item.seriesId, title: item.seriesTitle }),
@@ -443,70 +469,108 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
             />
           )
         }
-        onStartReached={() => {
-          // Never while one of our own scrollToLocation calls is still in
-          // flight (see markProgrammaticScroll) — an animated jump back to
-          // Today (the tab-reselect gesture) passes through the "near
-          // start" threshold while still settling, and an auto-load
-          // triggered mid-transit shifts content out from under the
-          // still-moving scroll, landing away from the intended target.
-          if (isProgrammaticScrollRef.current) return;
-          // Gated on hasAnchoredToToday — see docs/upcoming-timeline-todo.md
-          // Phase 9: an ungated onStartReached fires immediately on mount
-          // (a fresh SectionList always starts at offset 0, trivially "near
-          // the start"), racing the async Today-anchor and runaway-loading
-          // extra past pages before it ever gets a stable target. ALSO
-          // gated on hasUserScrolled (Phase 11) — without it, this and
-          // onEndReached could each still fire their own bounded burst
-          // simultaneously right at mount, landing away from Today even
-          // though bounded (react-native-web doesn't compensate scroll
-          // position when content is prepended/appended, so the list can
-          // read as "near both edges" for a short initial render). See
-          // canAutoLoadMorePages and the onScroll handler below.
-          if (canAutoLoadMorePages(isActiveRef.current, hasAnchoredToToday.current, hasPreviousPage, isFetchingPreviousPage, hasUserScrolled.current, autoPreviousLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
-            autoPreviousLoadCount.current += 1;
-            logEvent('upcoming_auto_load', { direction: 'previous', autoLoadCount: autoPreviousLoadCount.current });
-            // Phase 14: confirmed via remoteLogger breadcrumbs from a real
-            // session — autoPreviousLoadCount kept resetting to 0 (logged
-            // autoLoadCount values of 1,1,1,1,2,1,1,2...) almost every time,
-            // never reliably reaching MAX_AUTO_LOAD_PAGES_SINCE_RESET,
-            // because prepending a page shifts content without web
-            // properly compensating scroll position (the same
-            // maintainVisibleContentPosition limitation noted above) —
-            // that shift itself fires onScroll reporting "away from start",
-            // which the handler below (correctly, for a REAL user scroll)
-            // treats as a reset signal. markProgrammaticScroll() marks the
-            // onScroll events this fetch's own content-shift produces as
-            // ours, not a genuine user scroll, so the cap can no longer be
-            // defeated by its own prepended content — a real user scroll
-            // still resets it normally once this suppression window ends.
-            markProgrammaticScroll();
-            void fetchPreviousPage();
-          }
-        }}
+        // Phase 16: auto-load-on-scroll is native-only — web replaces it
+        // entirely with the explicit Load More buttons below
+        // (ListHeaderComponent/ListFooterComponent), since react-native-web
+        // never reliably compensates scroll position on prepend/append no
+        // matter how conservatively this auto-trigger is tuned (Phases
+        // 11/12/14/15). All the machinery below (hasUserScrolled,
+        // autoPreviousLoadCount/autoNextLoadCount, canAutoLoadMorePages,
+        // markProgrammaticScroll, onScroll) stays fully live for native and
+        // is simply never invoked on web once this handler is undefined.
+        onStartReached={
+          Platform.OS === 'web'
+            ? undefined
+            : () => {
+                // Never while one of our own scrollToLocation calls is still in
+                // flight (see markProgrammaticScroll) — an animated jump back to
+                // Today (the tab-reselect gesture) passes through the "near
+                // start" threshold while still settling, and an auto-load
+                // triggered mid-transit shifts content out from under the
+                // still-moving scroll, landing away from the intended target.
+                if (isProgrammaticScrollRef.current) return;
+                // Gated on hasAnchoredToToday — see docs/upcoming-timeline-todo.md
+                // Phase 9: an ungated onStartReached fires immediately on mount
+                // (a fresh SectionList always starts at offset 0, trivially "near
+                // the start"), racing the async Today-anchor and runaway-loading
+                // extra past pages before it ever gets a stable target. ALSO
+                // gated on hasUserScrolled (Phase 11) — without it, this and
+                // onEndReached could each still fire their own bounded burst
+                // simultaneously right at mount, landing away from Today even
+                // though bounded (react-native-web doesn't compensate scroll
+                // position when content is prepended/appended, so the list can
+                // read as "near both edges" for a short initial render). See
+                // canAutoLoadMorePages and the onScroll handler below.
+                if (canAutoLoadMorePages(isActiveRef.current, hasAnchoredToToday.current, hasPreviousPage, isFetchingPreviousPage, hasUserScrolled.current, autoPreviousLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
+                  autoPreviousLoadCount.current += 1;
+                  logEvent('upcoming_auto_load', { direction: 'previous', autoLoadCount: autoPreviousLoadCount.current });
+                  // Phase 14: confirmed via remoteLogger breadcrumbs from a real
+                  // session — autoPreviousLoadCount kept resetting to 0 (logged
+                  // autoLoadCount values of 1,1,1,1,2,1,1,2...) almost every time,
+                  // never reliably reaching MAX_AUTO_LOAD_PAGES_SINCE_RESET,
+                  // because prepending a page shifts content without web
+                  // properly compensating scroll position (the same
+                  // maintainVisibleContentPosition limitation noted above) —
+                  // that shift itself fires onScroll reporting "away from start",
+                  // which the handler below (correctly, for a REAL user scroll)
+                  // treats as a reset signal. markProgrammaticScroll() marks the
+                  // onScroll events this fetch's own content-shift produces as
+                  // ours, not a genuine user scroll, so the cap can no longer be
+                  // defeated by its own prepended content — a real user scroll
+                  // still resets it normally once this suppression window ends.
+                  markProgrammaticScroll();
+                  void fetchPreviousPage();
+                }
+              }
+        }
         // Phase 15: was 2 (2 screens' worth of distance from the edge) —
         // extremely generous given the Today anchor already sits close to
         // the start by design (only 3 days of past context above it, Phase
         // 10), so onStartReached could fire off nearly any scroll, not just
         // one that actually approached the loaded start. 0.5 requires
         // genuinely nearing the edge before RN considers this "reached."
+        // Native only, per the Phase 16 note above.
         onStartReachedThreshold={0.5}
-        onEndReached={() => {
-          if (isProgrammaticScrollRef.current) return;
-          if (canAutoLoadMorePages(isActiveRef.current, hasAnchoredToToday.current, hasNextPage, isFetchingNextPage, hasUserScrolled.current, autoNextLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
-            autoNextLoadCount.current += 1;
-            logEvent('upcoming_auto_load', { direction: 'next', autoLoadCount: autoNextLoadCount.current });
-            markProgrammaticScroll();
-            void fetchNextPage();
-          }
-        }}
+        onEndReached={
+          Platform.OS === 'web'
+            ? undefined
+            : () => {
+                if (isProgrammaticScrollRef.current) return;
+                if (canAutoLoadMorePages(isActiveRef.current, hasAnchoredToToday.current, hasNextPage, isFetchingNextPage, hasUserScrolled.current, autoNextLoadCount.current, MAX_AUTO_LOAD_PAGES_SINCE_RESET)) {
+                  autoNextLoadCount.current += 1;
+                  logEvent('upcoming_auto_load', { direction: 'next', autoLoadCount: autoNextLoadCount.current });
+                  markProgrammaticScroll();
+                  void fetchNextPage();
+                }
+              }
+        }
         // Phase 15: same reasoning as onStartReachedThreshold above.
         onEndReachedThreshold={0.5}
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         refreshing={isRefetching}
         onRefresh={() => void refetch()}
-        ListHeaderComponent={isFetchingPreviousPage ? <ActivityIndicator style={styles.spinner} color={colors.accent} /> : null}
-        ListFooterComponent={isFetchingNextPage ? <ActivityIndicator style={styles.spinner} color={colors.accent} /> : null}
+        // Phase 16: web shows an explicit tappable button instead of a bare
+        // spinner-on-auto-trigger — hidden once that direction is exhausted
+        // (hasPreviousPage/hasNextPage false), swapped for a spinner mid-fetch.
+        // Native keeps its original spinner-only behavior unchanged.
+        ListHeaderComponent={
+          Platform.OS === 'web'
+            ? hasPreviousPage
+              ? <LoadMoreButton label="Load earlier releases" iconName="chevron-up-outline" isLoading={isFetchingPreviousPage} onPress={handleLoadPrevious} />
+              : null
+            : isFetchingPreviousPage
+              ? <ActivityIndicator style={styles.spinner} color={colors.accent} />
+              : null
+        }
+        ListFooterComponent={
+          Platform.OS === 'web'
+            ? hasNextPage
+              ? <LoadMoreButton label="Load more upcoming" iconName="chevron-down-outline" isLoading={isFetchingNextPage} onPress={handleLoadNext} />
+              : null
+            : isFetchingNextPage
+              ? <ActivityIndicator style={styles.spinner} color={colors.accent} />
+              : null
+        }
         contentContainerStyle={styles.contentContainer}
         onLayout={handleListLayout}
         onScrollToIndexFailed={handleScrollToIndexFailed}
@@ -541,9 +605,50 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
   );
 });
 
+// Phase 16, web only — the explicit "Load earlier releases"/"Load more
+// upcoming" button shown in ListHeaderComponent/ListFooterComponent above,
+// replacing native's auto-load-on-scroll for the reasons documented there.
+// Styled after ErrorState.tsx's onRetry button (this app's only other
+// standalone action-button precedent) rather than introducing a new shared
+// Button component for a single call site.
+function LoadMoreButton({
+  label,
+  iconName,
+  isLoading,
+  onPress,
+}: {
+  label: string;
+  iconName: keyof typeof Ionicons.glyphMap;
+  isLoading: boolean;
+  onPress: () => void;
+}) {
+  if (isLoading) return <ActivityIndicator style={styles.spinner} color={colors.accent} />;
+  return (
+    <Pressable style={styles.loadMoreButton} onPress={onPress}>
+      {/* Icon colored to match the button TEXT, not the usual bare-icon
+          colors.accent — the pill's own background IS colors.accent, so an
+          accent-colored icon would be invisible against it. */}
+      <Ionicons name={iconName} size={18} color="#0A0A0D" />
+      <Text style={styles.loadMoreButtonText}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   list: { flex: 1, backgroundColor: colors.background },
   contentContainer: { paddingBottom: spacing.xxl },
   spinner: { paddingVertical: spacing.lg },
   emptyRow: { paddingHorizontal: spacing.lg },
+  loadMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: spacing.xs,
+    marginVertical: spacing.lg,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    backgroundColor: colors.accent,
+    borderRadius: radii.md,
+  },
+  loadMoreButtonText: { color: '#0A0A0D', fontWeight: '700', fontSize: 14 },
 });

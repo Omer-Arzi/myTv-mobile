@@ -78,17 +78,26 @@ export function resolveEffectiveLocalDateKey(item: UpcomingItem): string {
 export const UPCOMING_INITIAL_PAST_DAYS = 3;
 // Initial span kept under the server's 45-day max window (3+30=33).
 export const UPCOMING_INITIAL_FUTURE_DAYS = 30;
-// Subsequent scroll-triggered page size in each direction. Was 30 — Phase 15
-// shrank it to 10: on web (no maintainVisibleContentPosition compensation on
-// prepend, see SCROLL_RESET_DISTANCE_PX below), a single auto-load's content
-// jump is roughly proportional to this many days' worth of items, and 30
-// days was routinely 60-100+ items appearing under the user in one shot
-// (confirmed via remoteLogger: 26 items/9 sections -> 95 items/33 sections
-// from ONE auto-load, within 3 seconds of landing on Today). 10 keeps a
-// single load's visual jump small enough to not read as "loads lots of past
-// shows and jumps there" while still fetching enough to make continued
-// scrolling feel continuous.
+// Subsequent scroll-triggered page size in each direction — NATIVE ONLY as of
+// Phase 16 (web no longer auto-loads on scroll at all; see
+// UPCOMING_WEB_LOAD_PAST_DAYS/UPCOMING_WEB_LOAD_FUTURE_DAYS below). Was 30 —
+// Phase 15 shrank it to 10: on web (no maintainVisibleContentPosition
+// compensation on prepend, see SCROLL_RESET_DISTANCE_PX below), a single
+// auto-load's content jump was roughly proportional to this many days'
+// worth of items, and 30 days was routinely 60-100+ items appearing under
+// the user in one shot (confirmed via remoteLogger: 26 items/9 sections ->
+// 95 items/33 sections from ONE auto-load, within 3 seconds of landing on
+// Today). 10 keeps native's single auto-load small and continuous-feeling;
+// web sidesteps the whole problem via explicit buttons instead (Phase 16).
 export const UPCOMING_PAGE_WINDOW_DAYS = 10;
+// Phase 16 — web's explicit "Load earlier releases"/"Load more upcoming"
+// button page sizes. Deliberately distinct from (and larger in the future
+// direction than) UPCOMING_PAGE_WINDOW_DAYS: a single deliberate tap is
+// expected to load a more substantial, self-explanatory chunk than the
+// small increments UPCOMING_PAGE_WINDOW_DAYS was tuned down to for an
+// invisible auto-trigger. Native never reads these.
+export const UPCOMING_WEB_LOAD_PAST_DAYS = 7;
+export const UPCOMING_WEB_LOAD_FUTURE_DAYS = 30;
 
 export interface UpcomingWindow {
   from: string;
@@ -102,12 +111,16 @@ export function getInitialUpcomingWindow(todayKey: string): UpcomingWindow {
   };
 }
 
-export function getPreviousUpcomingWindow(currentFromKey: string): UpcomingWindow {
-  return { from: addDaysToLocalDateKey(currentFromKey, -UPCOMING_PAGE_WINDOW_DAYS), to: currentFromKey };
+// `days` defaults to the native auto-load page size — every existing
+// single-arg call site (native) is unaffected; web passes
+// UPCOMING_WEB_LOAD_PAST_DAYS/UPCOMING_WEB_LOAD_FUTURE_DAYS explicitly (see
+// UpcomingTimeline.tsx's getPreviousPageParam/getNextPageParam).
+export function getPreviousUpcomingWindow(currentFromKey: string, days: number = UPCOMING_PAGE_WINDOW_DAYS): UpcomingWindow {
+  return { from: addDaysToLocalDateKey(currentFromKey, -days), to: currentFromKey };
 }
 
-export function getNextUpcomingWindow(currentToKeyExclusive: string): UpcomingWindow {
-  return { from: currentToKeyExclusive, to: addDaysToLocalDateKey(currentToKeyExclusive, UPCOMING_PAGE_WINDOW_DAYS) };
+export function getNextUpcomingWindow(currentToKeyExclusive: string, days: number = UPCOMING_PAGE_WINDOW_DAYS): UpcomingWindow {
+  return { from: currentToKeyExclusive, to: addDaysToLocalDateKey(currentToKeyExclusive, days) };
 }
 
 // --- Within-day ordering (mirrors upcoming-query-helpers.ts's server rule) -

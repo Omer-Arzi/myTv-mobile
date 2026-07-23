@@ -22,6 +22,9 @@ import {
   resolveEffectiveLocalDateKey,
   SCROLL_RESET_DISTANCE_PX,
   shouldPerformInitialAnchor,
+  UPCOMING_PAGE_WINDOW_DAYS,
+  UPCOMING_WEB_LOAD_FUTURE_DAYS,
+  UPCOMING_WEB_LOAD_PAST_DAYS,
   UpcomingRow,
   UpcomingSection,
 } from '../upcomingGrouping';
@@ -196,6 +199,30 @@ describe('getInitialUpcomingWindow / getPreviousUpcomingWindow / getNextUpcoming
     const initial = getInitialUpcomingWindow('2026-07-15');
     const next = getNextUpcomingWindow(initial.to);
     expect(next.from).toBe(initial.to);
+  });
+
+  it('defaults to UPCOMING_PAGE_WINDOW_DAYS when no days argument is passed (native call sites unchanged)', () => {
+    const initial = getInitialUpcomingWindow('2026-07-15');
+    const prev = getPreviousUpcomingWindow(initial.from);
+    const next = getNextUpcomingWindow(initial.to);
+    expect(daysBetweenLocalDateKeys(prev.from, prev.to)).toBe(UPCOMING_PAGE_WINDOW_DAYS);
+    expect(daysBetweenLocalDateKeys(next.from, next.to)).toBe(UPCOMING_PAGE_WINDOW_DAYS);
+  });
+
+  it('builds a contiguous 7-day previous window when passed UPCOMING_WEB_LOAD_PAST_DAYS (Phase 16, web)', () => {
+    const initial = getInitialUpcomingWindow('2026-07-15');
+    const prev = getPreviousUpcomingWindow(initial.from, UPCOMING_WEB_LOAD_PAST_DAYS);
+    expect(prev.to).toBe(initial.from);
+    expect(daysBetweenLocalDateKeys(prev.from, prev.to)).toBe(7);
+    expect(daysBetweenLocalDateKeys(prev.from, prev.to)).toBeLessThanOrEqual(45);
+  });
+
+  it('builds a contiguous 30-day next window when passed UPCOMING_WEB_LOAD_FUTURE_DAYS (Phase 16, web)', () => {
+    const initial = getInitialUpcomingWindow('2026-07-15');
+    const next = getNextUpcomingWindow(initial.to, UPCOMING_WEB_LOAD_FUTURE_DAYS);
+    expect(next.from).toBe(initial.to);
+    expect(daysBetweenLocalDateKeys(next.from, next.to)).toBe(30);
+    expect(daysBetweenLocalDateKeys(next.from, next.to)).toBeLessThanOrEqual(45);
   });
 });
 
