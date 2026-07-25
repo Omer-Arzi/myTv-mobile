@@ -45,9 +45,14 @@ export function WatchlistScreen() {
   return (
     // A single top-level safe area for the whole screen (switch row +
     // both panels) — each panel's own inner chrome (Screen/UpcomingTimeline)
-    // renders with edges={[]} so the top/bottom inset is only ever applied
-    // once, not doubled.
-    <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
+    // renders with edges={[]} so the top inset is only ever applied once,
+    // not doubled. 'bottom' omitted entirely (previously ['top', 'bottom'])
+    // — this is a tab-root screen, and the bottom tab bar (a normal flex
+    // sibling below it, never an overlay) already reserves the full bottom
+    // safe-area inset for itself. Reserving it here too doubled up,
+    // rendering as a visible dark band directly above the tab bar. See
+    // docs/pwa.md.
+    <SafeAreaView style={styles.root} edges={['top']}>
       <View style={styles.switchRow}>
         <Pressable
           style={[styles.switchButton, mode === 'watchlist' && styles.switchButtonActive]}

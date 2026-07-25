@@ -317,3 +317,50 @@ persists even now, the next step is measuring `document.documentElement`'s
 actual rendered box against `window.visualViewport` live on a real device
 (e.g. via Safari's remote Web Inspector) rather than reasoning about it
 from a desktop/emulated environment again.
+
+### Third addendum: real-device re-check confirmed the gap, plus a second, unrelated bug found alongside it
+
+A real-device screenshot (installed iPhone PWA, Home tab) confirmed the black gap below the tab bar is
+still present — the second addendum's fix (`background-color: #0A0A0D`) is working as intended (it's
+black, not the earlier white), but the underlying gap itself, per that addendum, remains open. The same
+screenshot surfaced a **second, distinct, previously-undocumented bug**: a dark band *above* the tab
+bar, cutting into the last visible card, plus tab labels ("Watchlist", "Library") not rendering fully.
+
+**The dark band above the bar turned out to be unrelated to the `offsetHeight`/`dvh` timing issue
+above** — reading `@react-navigation/bottom-tabs`' actual source (`BottomTabView.js`) confirmed the tab
+bar is laid out as a normal flex sibling above the screen content (`flexDirection: 'column'`, `screens:
+{ flex: 1 }`), never an absolutely-positioned overlay, and it already fully reserves
+`insets.bottom` for its own height (`getTabBarHeight`: `height: 49 + insets.bottom`, `paddingBottom:
+insets.bottom` — these cancel out to a stable 49px content budget regardless of the inset's actual
+value). Because it's a real flex sibling, no screen ever needs its own bottom safe-area padding — but
+every tab-root screen was adding one anyway (`Screen.tsx`'s default `edges = ['top', 'bottom']`, used
+unmodified by `HomeScreen`/`SearchScreen`/`LibraryScreen`; `WatchlistScreen`'s own top-level
+`SafeAreaView` did the same with `edges={['top', 'bottom']}`, having previously only solved *doubling
+within itself*, not against the tab bar externally). **Fixed** by dropping `'bottom'` from all four
+tab-root screens' `edges` (`Screen.tsx`'s own default is untouched — still correct for non-tab-root,
+stack-pushed screens with no sibling tab bar). Verified structurally via a local build served against
+the local dev API (headless Chromium, 414×896 viewport): the dark band is gone on all four tabs, and
+all four tab labels now render fully — this is not itself proof the label issue's root cause was
+exactly as diagnosed (see below), only that it's no longer reproducing.
+
+**The tab-label issue**: hypothesized as a `react-native-web` flexbox text-truncation gap — the
+library's own `Label` component sets `numberOfLines={1}` (should ellipsize long text), but web
+flexbox children default to `min-width: auto`, which lets intrinsic text width win over the item's
+allotted space unless something sets `min-width: 0` explicitly. Added `tabBarItemStyle: { minWidth: 0
+}` to `TabNavigator.tsx`'s `screenOptions` as a low-risk, purely-additive fix. Could not independently
+confirm this was the exact original mechanism (the reporting screenshot's own hand-drawn annotation
+covered the affected labels), but post-fix verification shows all four labels rendering fully with no
+regression to the ones that already fit.
+
+**Also added, targeting this addendum's own still-open gap specifically**: a CSS-only safety net
+independent of the JS-measured insets entirely, in `scripts/build-web-pwa.js`'s injected `<head>`
+block — `div:has(> [role="tablist"]) { padding-bottom: env(safe-area-inset-bottom) !important;
+min-height: calc(49px + env(safe-area-inset-bottom)) !important; }`. `@react-navigation/bottom-tabs`
+gives its tab-items row a stable `role="tablist"` (confirmed in its own source, and it's the only such
+element in this app), so targeting its parent — the actual bar element carrying height/padding — via
+`:has()` is safe and specific. `env()` resolves natively and synchronously in CSS, with no JS
+measurement race at all, sidestepping the `offsetHeight` timing problem this addendum describes for at
+least this one highly-visible element. Verified structurally (the selector matches the correct DOM
+node, computed styles reflect the rule) via headless Chromium — but a normal desktop/emulated browser
+has no real safe-area inset to observe, so **this remains an unproven best-effort mitigation, not a
+confirmed fix — still needs the same real-device re-check this whole addendum chain keeps needing.**

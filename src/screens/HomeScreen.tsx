@@ -352,6 +352,12 @@ export function HomeScreen() {
       ref={scrollRef}
       refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={handleRefresh} tintColor={colors.accent} />}
       scrollEnabled={!isSwipeLocked}
+      // 'bottom' omitted deliberately — this is a tab-root screen, and the
+      // bottom tab bar (a normal flex sibling below it, never an overlay)
+      // already reserves the full bottom safe-area inset for itself. Adding
+      // it here too doubles up, rendering as a visible dark band directly
+      // above the tab bar. See docs/pwa.md.
+      edges={['top']}
     >
       <SectionHeader title="Recently Watched" />
       {mergedRecentlyWatched.length === 0 ? (

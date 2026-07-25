@@ -60,7 +60,10 @@ export function LibraryScreen() {
   const openNeedsAttention = useCallback(() => navigation.navigate('NeedsAttention'), [navigation]);
 
   return (
-    <Screen ref={scrollRef} refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.accent} />}>
+    // 'bottom' omitted deliberately — this is a tab-root screen; the bottom
+    // tab bar already reserves the full bottom safe-area inset for itself
+    // as a normal flex sibling, never an overlay. See docs/pwa.md.
+    <Screen ref={scrollRef} refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.accent} />} edges={['top']}>
       {needsAttentionItems && needsAttentionItems.length > 0 ? (
         <Pressable style={({ pressed }) => [styles.attentionBanner, pressed && styles.attentionBannerPressed]} onPress={openNeedsAttention}>
           <Text style={styles.attentionBannerText}>⚠ Needs Attention ({needsAttentionItems.length})</Text>

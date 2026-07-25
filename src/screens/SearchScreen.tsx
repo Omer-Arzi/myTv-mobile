@@ -217,7 +217,10 @@ export function SearchScreen() {
   );
 
   return (
-    <Screen scroll={false} contentContainerStyle={styles.screenContent}>
+    // 'bottom' omitted deliberately — this is a tab-root screen; the bottom
+    // tab bar already reserves the full bottom safe-area inset for itself
+    // as a normal flex sibling, never an overlay. See docs/pwa.md.
+    <Screen scroll={false} contentContainerStyle={styles.screenContent} edges={['top']}>
       <View style={styles.inputRow}>
         <Ionicons name="search" size={18} color={colors.textTertiary} style={styles.inputIcon} />
         <TextInput

@@ -23,6 +23,14 @@ export function TabNavigator() {
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.textTertiary,
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        // minWidth: 0 overrides the browser's flexbox default (min-width:
+        // auto, which lets intrinsic text width win over the flex item's
+        // allotted space) — without it, react-native-web's numberOfLines={1}
+        // truncation on the tab label (set by @react-navigation/elements'
+        // Label component) isn't reliably honored, and our two longest
+        // labels ("Watchlist", "Library") can overflow/clip instead of
+        // ellipsizing to fit their tab item's width.
+        tabBarItemStyle: { minWidth: 0 },
       }}
     >
       <Tab.Screen
