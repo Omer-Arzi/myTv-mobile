@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { login } from '../api/endpoints/auth';
 import { Screen } from '../components/Screen';
-import { colors, radii, spacing, typography } from '../theme/theme';
+import { colors, radii, spacing, typography, WEB_INPUT_ZOOM_FIX } from '../theme/theme';
 import { getErrorMessage } from '../utils/errors';
 
 interface Props {
@@ -50,7 +50,7 @@ export function LoginScreen({ onLoggedIn }: Props) {
           onSubmitEditing={handleSubmit}
           placeholder="Password"
           placeholderTextColor={colors.textTertiary}
-          style={styles.input}
+          style={[styles.input, WEB_INPUT_ZOOM_FIX]}
           secureTextEntry
           autoFocus
           returnKeyType="go"

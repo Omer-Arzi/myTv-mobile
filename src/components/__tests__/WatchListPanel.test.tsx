@@ -78,9 +78,9 @@ describe('WatchListPanel', () => {
     // call) — a card's own userStatus badge can otherwise collide with the
     // filter pill's own label text (e.g. a COMPLETED card rendering
     // alongside the "Completed" pill), making `getByText` ambiguous.
-    mockListSeries.mockImplementation(({ status }) =>
+    mockListSeries.mockImplementation((params = {}) =>
       Promise.resolve(
-        status === 'COMPLETED'
+        params.status === 'COMPLETED'
           ? { items: [seriesCard({ id: 'series-2', title: 'Severance', userStatus: 'COMPLETED' })], nextCursor: null }
           : { items: [seriesCard()], nextCursor: null },
       ),

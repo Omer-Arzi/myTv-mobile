@@ -3,6 +3,8 @@
 // panel: near-black surfaces, a cinematic indigo accent, poster/backdrop
 // imagery doing most of the visual work rather than color or chrome.
 
+import { Platform } from 'react-native';
+
 export const colors = {
   background: '#0A0A0D',
   surface: '#16161B',
@@ -57,5 +59,21 @@ export const typography = {
   caption: { fontSize: 13, fontWeight: '500' as const, color: colors.textSecondary },
   small: { fontSize: 12, fontWeight: '500' as const, color: colors.textTertiary },
 };
+
+// iOS Safari/WKWebView (including this app's installed "app-like" PWA —
+// see docs/pwa.md) auto-zooms the whole page whenever a focused text
+// input's computed font-size is under 16px — a built-in WebKit
+// accessibility heuristic that can't be disabled via the viewport meta tag
+// (iOS ignores maximum-scale/user-scalable=no for exactly this case, by
+// design). Every typography size in this file is under 16px, so any
+// TextInput styled directly from `typography.body` (etc.) triggers it on
+// focus — confirmed as the cause of a real-device "page zooms in, stays
+// zoomed across tab switches" report (the zoom is a genuine browser-level
+// zoom, not app state, so it persists until manually reset). Native has no
+// such behavior, so this only ever applies on web. Merge into any
+// TextInput's own style array — never applies to non-input text, which
+// would needlessly bump every label/caption to a size the design doesn't
+// call for: `style={[styles.input, WEB_INPUT_ZOOM_FIX]}`.
+export const WEB_INPUT_ZOOM_FIX = Platform.OS === 'web' ? { fontSize: 16 } : {};
 
 export const theme = { colors, spacing, radii, typography };

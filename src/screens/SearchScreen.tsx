@@ -16,7 +16,7 @@ import { SeriesSearchResult } from '../api/types';
 import { addRecentSearch, clearRecentSearches, getRecentSearches } from '../utils/recentSearches';
 import { needsReviewTarget } from '../utils/searchResultCopy';
 import { getErrorMessage } from '../utils/errors';
-import { colors, radii, spacing, typography } from '../theme/theme';
+import { colors, radii, spacing, typography, WEB_INPUT_ZOOM_FIX } from '../theme/theme';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -229,7 +229,7 @@ export function SearchScreen() {
           onSubmitEditing={() => trimmedQuery.length >= MIN_QUERY_LENGTH && submitRecentSearch(query)}
           placeholder="Search for a series"
           placeholderTextColor={colors.textTertiary}
-          style={styles.input}
+          style={[styles.input, WEB_INPUT_ZOOM_FIX]}
           autoFocus
           returnKeyType="search"
           autoCorrect={false}

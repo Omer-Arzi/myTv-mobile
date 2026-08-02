@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { colors, radii, spacing, typography } from '../theme/theme';
+import { colors, radii, spacing, typography, WEB_INPUT_ZOOM_FIX } from '../theme/theme';
 
 interface Props {
   visible: boolean;
@@ -34,7 +34,7 @@ export function NoteEditModal({ visible, episodeLabel, initialText, isSaving, on
           <Text style={styles.subtitle}>{episodeLabel}</Text>
 
           <TextInput
-            style={styles.input}
+            style={[styles.input, WEB_INPUT_ZOOM_FIX]}
             value={text}
             onChangeText={setText}
             placeholder="Add a note about this episode..."
