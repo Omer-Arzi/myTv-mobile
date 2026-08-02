@@ -37,8 +37,8 @@ export type RootStackParamList = {
 export type TabParamList = {
   Home: undefined;
   Watchlist: undefined;
-  Library: undefined;
   Search: undefined;
+  System: undefined;
 };
 
 // Augments React Navigation's own types so useNavigation()/navigate() are

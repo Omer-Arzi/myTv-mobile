@@ -29,9 +29,6 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WatchlistScreen } from '../WatchlistScreen';
-import { getWatchlist } from '../../api/endpoints/watchlist';
-
-jest.mock('../../api/endpoints/watchlist');
 
 const mockScrollToLocation = jest.fn();
 jest.mock('../../components/WatchListPanel', () => {
@@ -58,8 +55,6 @@ jest.mock('../../components/UpcomingTimeline', () => {
     }),
   };
 });
-
-const mockGetWatchlist = getWatchlist as jest.MockedFunction<typeof getWatchlist>;
 
 const Tab = createBottomTabNavigator();
 
@@ -90,8 +85,6 @@ function flushRAF() {
 }
 
 beforeEach(() => {
-  mockGetWatchlist.mockReset();
-  mockGetWatchlist.mockResolvedValue([]);
   mockScrollToLocation.mockClear();
   mockScrollToToday.mockClear();
 });

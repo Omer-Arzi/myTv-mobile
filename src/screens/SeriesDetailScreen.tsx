@@ -150,9 +150,9 @@ export function SeriesDetailScreen() {
   // preserves correctly — see server/docs/on-hold-dropped-status-todo.md).
   // Patches the cached SeriesDetail in place (same pattern as
   // applyUnwatchResult below) so the badge and "Continue tracking" card
-  // update immediately, then invalidates Home/Watchlist/Library so those
-  // screens reflect the change without a manual refresh — this series may
-  // now need to appear in or disappear from any of them.
+  // update immediately, then invalidates Home/Watch List so those screens
+  // reflect the change without a manual refresh — this series may now need
+  // to appear in or disappear from either of them.
   const updateStatusMutation = useMutation({
     mutationFn: (targetStatus: SeriesStatusAction['targetStatus']) => updateSeriesStatus(params.seriesId, targetStatus),
     onSuccess: (result) => {
@@ -161,10 +161,9 @@ export function SeriesDetailScreen() {
       );
       void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail(params.seriesId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.home });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.watchlist });
-      // Partial match (no params) — invalidates every Library status-filter
+      // Partial match (no params) — invalidates every Watch List status-filter
       // tab, not just whichever one happened to be open last.
-      void queryClient.invalidateQueries({ queryKey: ['series', 'list'] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.seriesLists });
       // A status change (e.g. WATCHLIST -> WATCHING, or DROPPED -> WATCHING)
       // can add or remove this series' episodes from Upcoming's eligibility
       // set — see upcoming-query-helpers.ts's UPCOMING_ELIGIBLE_STATUSES.

@@ -3,11 +3,14 @@ import { SeriesSummary } from './series';
 
 // Mirrors server/src/modules/watchlist/dto/watchlist-item.dto.ts — the
 // response of GET /watchlist. Only ever WATCHING/CAUGHT_UP/WATCHLIST, and
-// only WATCHING/CAUGHT_UP series with a confirmed provider match — the tab
-// represents the user's active, TRUSTWORTHY tracking list, not every row
-// that happens to carry an active-looking status label (see
-// utils/groupWatchlistItems.ts for how the client groups these into
-// sections). Already sorted alphabetically by series.title.
+// only WATCHING/CAUGHT_UP series with a confirmed provider match — this
+// was previously used to power the Watch List tab's trust-filtered view;
+// as of the 2026-08 tab restructure (mobile/docs/tab-restructure-todo.md)
+// that tab now sources from GET /series instead (unfiltered by trust,
+// filterable by any status), so GET /watchlist has no mobile consumer
+// left — this type is still used for POST /series/:id/watchlist and
+// POST /search/add's response shape. Already sorted alphabetically by
+// series.title.
 export interface WatchlistItem {
   id: string;
   series: SeriesSummary;

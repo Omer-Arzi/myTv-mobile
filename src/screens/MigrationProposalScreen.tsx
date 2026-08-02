@@ -71,7 +71,7 @@ export function MigrationProposalScreen() {
     onSettled: () => setIsConfirming(false),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.migrationWorkbench });
-      queryClient.invalidateQueries({ queryKey: queryKeys.watchlist });
+      queryClient.invalidateQueries({ queryKey: queryKeys.seriesLists });
       appAlert('Migration applied', result.message, [{ text: 'OK', onPress: () => navigation.goBack() }]);
     },
     onError: (err: unknown) => {

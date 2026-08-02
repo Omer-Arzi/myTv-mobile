@@ -59,7 +59,7 @@ export function MigrationHistoryDetailScreen() {
     onSuccess: (result) => {
       // Refresh everything the rollback could have changed.
       queryClient.invalidateQueries({ queryKey: queryKeys.migrationWorkbench });
-      queryClient.invalidateQueries({ queryKey: queryKeys.watchlist });
+      queryClient.invalidateQueries({ queryKey: queryKeys.seriesLists });
       queryClient.invalidateQueries({ queryKey: queryKeys.home });
       queryClient.invalidateQueries({ queryKey: queryKeys.migrationHistory });
       queryClient.invalidateQueries({ queryKey: queryKeys.migrationHistoryDetail(migrationId) });

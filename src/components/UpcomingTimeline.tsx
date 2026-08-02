@@ -410,7 +410,7 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
           }
         }
         void queryClient.invalidateQueries({ queryKey: queryKeys.home });
-        void queryClient.invalidateQueries({ queryKey: queryKeys.watchlist });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.seriesLists });
       } catch (err) {
         appAlert(item.isWatched ? 'Could Not Mark Unwatched' : 'Could Not Mark Watched', getErrorMessage(err));
       } finally {

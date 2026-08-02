@@ -2,8 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { HomeScreen } from '../screens/HomeScreen';
 import { WatchlistScreen } from '../screens/WatchlistScreen';
-import { LibraryScreen } from '../screens/LibraryScreen';
 import { SearchScreen } from '../screens/SearchScreen';
+import { SystemScreen } from '../screens/SystemScreen';
 import { TabParamList } from './types';
 import { colors } from '../theme/theme';
 
@@ -27,9 +27,9 @@ export function TabNavigator() {
         // auto, which lets intrinsic text width win over the flex item's
         // allotted space) — without it, react-native-web's numberOfLines={1}
         // truncation on the tab label (set by @react-navigation/elements'
-        // Label component) isn't reliably honored, and our two longest
-        // labels ("Watchlist", "Library") can overflow/clip instead of
-        // ellipsizing to fit their tab item's width.
+        // Label component) isn't reliably honored, and our longest label
+        // ("Watchlist") can overflow/clip instead of ellipsizing to fit its
+        // tab item's width.
         tabBarItemStyle: { minWidth: 0 },
       }}
     >
@@ -37,6 +37,7 @@ export function TabNavigator() {
         name="Home"
         component={HomeScreen}
         options={{
+          tabBarButtonTestID: 'tab-button-home',
           tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={color} />,
         }}
       />
@@ -44,24 +45,27 @@ export function TabNavigator() {
         name="Watchlist"
         component={WatchlistScreen}
         options={{
+          tabBarButtonTestID: 'tab-button-watchlist',
           tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? 'tv' : 'tv-outline'} size={size} color={color} />,
-        }}
-      />
-      <Tab.Screen
-        name="Library"
-        component={LibraryScreen}
-        options={{
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'library' : 'library-outline'} size={size} color={color} />
-          ),
         }}
       />
       <Tab.Screen
         name="Search"
         component={SearchScreen}
         options={{
+          tabBarButtonTestID: 'tab-button-search',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons name={focused ? 'search' : 'search-outline'} size={size} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="System"
+        component={SystemScreen}
+        options={{
+          tabBarButtonTestID: 'tab-button-system',
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'hardware-chip' : 'hardware-chip-outline'} size={size} color={color} />
           ),
         }}
       />

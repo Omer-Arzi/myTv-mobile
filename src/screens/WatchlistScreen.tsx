@@ -5,7 +5,7 @@ import { useScrollToTop } from '@react-navigation/native';
 import { WatchListPanel } from '../components/WatchListPanel';
 import { UpcomingTimeline, UpcomingTimelineHandle } from '../components/UpcomingTimeline';
 import { colors, radii, spacing, typography } from '../theme/theme';
-import { WatchlistItem } from '../api/types';
+import { SeriesCard } from '../api/types';
 import { logEvent } from '../utils/remoteLogger';
 
 type ShowsMode = 'watchlist' | 'upcoming';
@@ -21,7 +21,7 @@ type ShowsMode = 'watchlist' | 'upcoming';
 // "Frontend structure".
 export function WatchlistScreen() {
   const [mode, setMode] = useState<ShowsMode>('watchlist');
-  const watchListScrollRef = useRef<SectionList<WatchlistItem>>(null);
+  const watchListScrollRef = useRef<SectionList<SeriesCard>>(null);
   const upcomingRef = useRef<UpcomingTimelineHandle>(null);
 
   // Exactly ONE useScrollToTop registration for the whole Shows tab —

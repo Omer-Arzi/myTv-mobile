@@ -8,3 +8,4 @@ export * from './watch-all';
 export * from './migration-workbench';
 export * from './search';
 export * from './upcoming';
+export * from './sync';

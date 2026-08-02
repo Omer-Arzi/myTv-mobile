@@ -2,9 +2,9 @@
 // its current screen to the top, via @react-navigation/native's own
 // useScrollToTop mechanism — not a bespoke global event system. This
 // exercises that exact wiring (Screen's forwardRef'd ScrollView +
-// useScrollToTop, the same pattern HomeScreen/WatchlistScreen/LibraryScreen
-// use in production) inside a real bottom-tab navigator, rather than
-// mocking react-navigation's internals.
+// useScrollToTop, the same pattern HomeScreen/WatchlistScreen use in
+// production) inside a real bottom-tab navigator, rather than mocking
+// react-navigation's internals.
 //
 // Uses two minimal tab screens instead of the real four (which would each
 // need their own API/react-query mocking) — the thing under test is the
@@ -26,8 +26,8 @@ const Tab = createBottomTabNavigator();
 let capturedScrollRef: RNScrollView | null = null;
 let scrollToSpy: jest.SpyInstance;
 
-// Same pattern as HomeScreen/WatchlistScreen/LibraryScreen: a ref to
-// Screen's forwarded ScrollView, registered with useScrollToTop. A local
+// Same pattern as HomeScreen/WatchlistScreen: a ref to Screen's forwarded
+// ScrollView, registered with useScrollToTop. A local
 // counter (bumped only on mount) stands in for "filters/search/pagination/
 // data" — if a reselect ever remounted this screen, the rendered count
 // would reset to 1 instead of staying wherever the test left it.

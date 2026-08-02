@@ -36,22 +36,6 @@ export function formatStatusLabel(status: string): string {
     .join(' ');
 }
 
-// Short, card-sized labels for GET /watchlist's attentionReasonCode (mirrors
-// the reasonCode values needs-attention-logic.ts::classifySeriesForAttention
-// produces — same source of truth, just a terser label than the full
-// GET /needs-attention summary sentence). Only 'known-episode-numbering-risk'
-// is expected here in practice (the Watchlist tab already excludes
-// no-confirmed-provider-match series entirely), but every known reasonCode
-// is mapped for completeness, with a safe fallback for an unrecognized one.
-const ATTENTION_WARNING_LABELS: Record<string, string> = {
-  'known-episode-numbering-risk': 'Numbering risk',
-  'no-confirmed-provider-match': 'Unconfirmed match',
-};
-
-export function formatAttentionWarningLabel(reasonCode: string): string {
-  return ATTENTION_WARNING_LABELS[reasonCode] ?? 'Needs review';
-}
-
 // The ONE place a ProviderCandidate.confidenceScore (canonical 0..1 — see
 // api/types/migration-workbench.ts) is ever converted to a percentage for
 // display. Introduced alongside the fix for a real bug where a candidate's
