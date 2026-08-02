@@ -217,10 +217,33 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
       // (Phase 16). Platform.OS is invariant for the process lifetime, so a
       // plain check here is correct regardless of how many times react-query
       // calls this.
+      //
+      // Web ALWAYS returns a next window here, ignoring hasMorePast/
+      // hasMoreFuture — an explicit tap is never permanently refused. The
+      // known-data horizon moves (the automatic scheduler/migration sweep
+      // insert newly-announced episodes in the background, sometimes past
+      // what a currently-open session last saw), and native's own
+      // auto-load-on-scroll already tolerates an empty page as a normal
+      // outcome — a human pressing "Load more" a second time deserves the
+      // same real check, not a button that vanished because nothing was
+      // known yet the LAST time this was fetched. Each press still costs
+      // exactly one request either way, same as before. Native keeps
+      // respecting the flags — this must never change its scroll-triggered
+      // auto-load gating (canAutoLoadMorePages), which relies on
+      // hasPreviousPage/hasNextPage eventually going false to stop firing
+      // at a real edge.
       getPreviousPageParam: (firstPage) =>
-        firstPage.hasMorePast ? getPreviousUpcomingWindow(firstPage.from, Platform.OS === 'web' ? UPCOMING_WEB_LOAD_PAST_DAYS : undefined) : undefined,
+        Platform.OS === 'web'
+          ? getPreviousUpcomingWindow(firstPage.from, UPCOMING_WEB_LOAD_PAST_DAYS)
+          : firstPage.hasMorePast
+            ? getPreviousUpcomingWindow(firstPage.from)
+            : undefined,
       getNextPageParam: (lastPage) =>
-        lastPage.hasMoreFuture ? getNextUpcomingWindow(lastPage.to, Platform.OS === 'web' ? UPCOMING_WEB_LOAD_FUTURE_DAYS : undefined) : undefined,
+        Platform.OS === 'web'
+          ? getNextUpcomingWindow(lastPage.to, UPCOMING_WEB_LOAD_FUTURE_DAYS)
+          : lastPage.hasMoreFuture
+            ? getNextUpcomingWindow(lastPage.to)
+            : undefined,
     });
 
   const pages = data?.pages ?? [];
@@ -550,9 +573,12 @@ export const UpcomingTimeline = forwardRef<UpcomingTimelineHandle, Props>(functi
         refreshing={isRefetching}
         onRefresh={() => void refetch()}
         // Phase 16: web shows an explicit tappable button instead of a bare
-        // spinner-on-auto-trigger — hidden once that direction is exhausted
-        // (hasPreviousPage/hasNextPage false), swapped for a spinner mid-fetch.
-        // Native keeps its original spinner-only behavior unchanged.
+        // spinner-on-auto-trigger — hasPreviousPage/hasNextPage are always
+        // true on web now (see getPreviousPageParam/getNextPageParam above),
+        // so this button is always available for another explicit try, never
+        // permanently hidden just because the last fetch happened to come
+        // back empty. Swapped for a spinner mid-fetch. Native keeps its
+        // original spinner-only, flag-gated behavior unchanged.
         ListHeaderComponent={
           Platform.OS === 'web'
             ? hasPreviousPage
