@@ -1,9 +1,13 @@
 // Covers WatchListPanel's merged behavior (mobile/docs/tab-restructure-todo.md
 // Step 2): it now sources from GET /series (status-filterable, like the
 // retired LibraryScreen) instead of GET /watchlist, with the status-pill
-// row and Needs Attention banner both relocated in as SectionList header
-// content. listSeries/getMigrationWorkbench are the only two network seams
-// mocked here, exactly like the component calls them in production.
+// row relocated in as SectionList header content. The Needs Attention
+// banner that used to live here moved to SystemScreen (see
+// SystemScreen.test.tsx) — this component no longer queries
+// migration-workbench at all.
+//
+// listSeries is the only network seam mocked here, exactly like the
+// component calls it in production.
 //
 // Virtualization props (initialNumToRender/windowSize) are NOT asserted
 // here — this codebase's own documented limitation (see CLAUDE.md and
@@ -18,14 +22,11 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WatchListPanel } from '../WatchListPanel';
 import { listSeries } from '../../api/endpoints/series';
-import { getMigrationWorkbench } from '../../api/endpoints/migration-workbench';
 import { SeriesCard as SeriesCardModel } from '../../api/types';
 
 jest.mock('../../api/endpoints/series');
-jest.mock('../../api/endpoints/migration-workbench');
 
 const mockListSeries = listSeries as jest.MockedFunction<typeof listSeries>;
-const mockGetMigrationWorkbench = getMigrationWorkbench as jest.MockedFunction<typeof getMigrationWorkbench>;
 
 const seriesCard = (overrides: Partial<SeriesCardModel> = {}): SeriesCardModel => ({
   id: 'series-1',
@@ -52,7 +53,6 @@ async function renderPanel() {
         <Stack.Navigator>
           <Stack.Screen name="WatchList" component={WatchListPanel} options={{ headerShown: false }} />
           <Stack.Screen name="SeriesDetail" component={NullScreen} />
-          <Stack.Screen name="NeedsAttention" component={NullScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </QueryClientProvider>,
@@ -61,8 +61,6 @@ async function renderPanel() {
 
 beforeEach(() => {
   mockListSeries.mockReset();
-  mockGetMigrationWorkbench.mockReset();
-  mockGetMigrationWorkbench.mockResolvedValue([]);
 });
 
 describe('WatchListPanel', () => {
@@ -76,7 +74,17 @@ describe('WatchListPanel', () => {
   });
 
   it('tapping a status pill refetches with the new status', async () => {
-    mockListSeries.mockResolvedValue({ items: [seriesCard({ id: 'series-2', title: 'Severance', userStatus: 'COMPLETED' })], nextCursor: null });
+    // Responds per requested status (not one canned response for every
+    // call) — a card's own userStatus badge can otherwise collide with the
+    // filter pill's own label text (e.g. a COMPLETED card rendering
+    // alongside the "Completed" pill), making `getByText` ambiguous.
+    mockListSeries.mockImplementation(({ status }) =>
+      Promise.resolve(
+        status === 'COMPLETED'
+          ? { items: [seriesCard({ id: 'series-2', title: 'Severance', userStatus: 'COMPLETED' })], nextCursor: null }
+          : { items: [seriesCard()], nextCursor: null },
+      ),
+    );
 
     const { getByText } = await renderPanel();
     await waitFor(() => expect(mockListSeries).toHaveBeenCalledWith({ status: 'WATCHING', limit: 50 }));
@@ -95,26 +103,5 @@ describe('WatchListPanel', () => {
     const { getByText } = await renderPanel();
 
     await waitFor(() => expect(getByText(/No series with status "Watching" yet\./)).toBeTruthy());
-  });
-
-  it('shows no Needs Attention banner when there is nothing to review', async () => {
-    mockListSeries.mockResolvedValue({ items: [], nextCursor: null });
-    mockGetMigrationWorkbench.mockResolvedValue([]);
-
-    const { queryByText } = await renderPanel();
-
-    await waitFor(() => expect(mockGetMigrationWorkbench).toHaveBeenCalled());
-    expect(queryByText(/Needs Attention/)).toBeNull();
-  });
-
-  it('shows a Needs Attention banner with the item count when there is something to review', async () => {
-    mockListSeries.mockResolvedValue({ items: [], nextCursor: null });
-    mockGetMigrationWorkbench.mockResolvedValue([
-      { seriesId: 'series-3', title: 'Severance', posterUrl: null, category: 'NEEDS_EPISODE_REVIEW', reason: 'test', proposal: null },
-    ]);
-
-    const { getByText } = await renderPanel();
-
-    await waitFor(() => expect(getByText('⚠ Needs Attention (1)')).toBeTruthy());
   });
 });

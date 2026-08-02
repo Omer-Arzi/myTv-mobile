@@ -1,15 +1,21 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getLibraryRefreshStatus, startLibraryRefresh } from '../api/endpoints/sync';
+import { getMigrationWorkbench } from '../api/endpoints/migration-workbench';
 import { queryKeys } from '../api/queryKeys';
 import { Screen } from '../components/Screen';
 import { SectionHeader } from '../components/SectionHeader';
 import { UserSeriesStatus } from '../api/types';
+import { RootStackParamList } from '../navigation/types';
 import { colors, radii, spacing, typography } from '../theme/theme';
 import { formatStatusLabel } from '../utils/format';
 import { appAlert } from '../utils/appAlert';
 import { getErrorMessage } from '../utils/errors';
+
+type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 // Every user-settable personal status (WATCHLIST included — unlike the
 // Watch List panel's STATUS_FILTERS, there's no reason to exclude it here;
@@ -40,8 +46,19 @@ function Row({ label, value }: { label: string; value: string }) {
 // tracked status), same as if the whole-library refresh had been
 // requested directly.
 export function SystemScreen() {
+  const navigation = useNavigation<Navigation>();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Set<UserSeriesStatus>>(new Set());
+
+  // Moved here from the Watch List panel (mobile/docs/tab-restructure-todo.md)
+  // — it used to only appear as a banner when there was something to
+  // review, which meant there was no consistent place to even check.
+  // Always rendered now, regardless of count.
+  const { data: needsAttentionItems } = useQuery({
+    queryKey: queryKeys.migrationWorkbench,
+    queryFn: getMigrationWorkbench,
+  });
+  const openNeedsAttention = useCallback(() => navigation.navigate('NeedsAttention'), [navigation]);
 
   const { data: status } = useQuery({
     queryKey: queryKeys.syncStatus,
@@ -75,8 +92,20 @@ export function SystemScreen() {
   const isRunning = job?.status === 'RUNNING';
   const fetchDisabled = mutation.isPending || isRunning;
 
+  const needsAttentionCount = needsAttentionItems?.length ?? 0;
+
   return (
     <Screen edges={['top']}>
+      <SectionHeader title="Manual review" />
+      <Pressable
+        style={({ pressed }) => [styles.reviewRow, needsAttentionCount > 0 && styles.reviewRowActive, pressed && styles.pressed]}
+        onPress={openNeedsAttention}
+      >
+        <Text style={[styles.reviewRowText, needsAttentionCount > 0 && styles.reviewRowTextActive]}>
+          {needsAttentionCount > 0 ? `⚠ Needs Attention (${needsAttentionCount})` : 'Nothing needs attention'}
+        </Text>
+      </Pressable>
+
       <SectionHeader title="Fetch by status" subtitle="Choose which shows to check for updates, or none for everything." />
       <View style={styles.pillRow}>
         {STATUS_OPTIONS.map((option) => {
@@ -120,6 +149,17 @@ export function SystemScreen() {
 }
 
 const styles = StyleSheet.create({
+  reviewRow: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.surfaceElevated,
+  },
+  reviewRowActive: { backgroundColor: colors.warningSoft },
+  reviewRowText: { ...typography.caption, fontWeight: '700', color: colors.textSecondary },
+  reviewRowTextActive: { color: colors.warning },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
   pill: {
     paddingHorizontal: spacing.md,

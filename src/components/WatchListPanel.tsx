@@ -4,7 +4,6 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery } from '@tanstack/react-query';
 import { listSeries } from '../api/endpoints/series';
-import { getMigrationWorkbench } from '../api/endpoints/migration-workbench';
 import { queryKeys } from '../api/queryKeys';
 import { SeriesCard as SeriesCardModel, UserSeriesStatus } from '../api/types';
 import { RootStackParamList } from '../navigation/types';
@@ -86,10 +85,6 @@ export const WatchListPanel = forwardRef<SectionList<SeriesCardModel>>(function 
     queryKey: queryKeys.seriesList(params),
     queryFn: () => listSeries(params),
   });
-  const { data: needsAttentionItems } = useQuery({
-    queryKey: queryKeys.migrationWorkbench,
-    queryFn: getMigrationWorkbench,
-  });
 
   const openSeries = useCallback(
     (seriesId: string, title: string) => {
@@ -97,7 +92,6 @@ export const WatchListPanel = forwardRef<SectionList<SeriesCardModel>>(function 
     },
     [navigation],
   );
-  const openNeedsAttention = useCallback(() => navigation.navigate('NeedsAttention'), [navigation]);
 
   // Mirrors UpcomingTimeline's upcoming_data_ready breadcrumb — logs data
   // volume right before it actually renders, so a real crash (the renderer
@@ -125,23 +119,16 @@ export const WatchListPanel = forwardRef<SectionList<SeriesCardModel>>(function 
         windowSize={WINDOW_SIZE}
         stickySectionHeadersEnabled={false}
         ListHeaderComponent={
-          <>
-            {needsAttentionItems && needsAttentionItems.length > 0 ? (
-              <Pressable style={({ pressed }) => [styles.attentionBanner, pressed && styles.attentionBannerPressed]} onPress={openNeedsAttention}>
-                <Text style={styles.attentionBannerText}>⚠ Needs Attention ({needsAttentionItems.length})</Text>
-              </Pressable>
-            ) : null}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow} contentContainerStyle={styles.filterRowContent}>
-              {STATUS_FILTERS.map((filter) => {
-                const active = filter === status;
-                return (
-                  <Pressable key={filter} style={[styles.filterPill, active && styles.filterPillActive]} onPress={() => setStatus(filter)}>
-                    <Text style={[styles.filterLabel, active && styles.filterLabelActive]}>{formatStatusLabel(filter)}</Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow} contentContainerStyle={styles.filterRowContent}>
+            {STATUS_FILTERS.map((filter) => {
+              const active = filter === status;
+              return (
+                <Pressable key={filter} style={[styles.filterPill, active && styles.filterPillActive]} onPress={() => setStatus(filter)}>
+                  <Text style={[styles.filterLabel, active && styles.filterLabelActive]}>{formatStatusLabel(filter)}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
         }
         renderItem={({ item }) => (
           <SeriesCard
@@ -173,16 +160,6 @@ export const WatchListPanel = forwardRef<SectionList<SeriesCardModel>>(function 
 const styles = StyleSheet.create({
   list: { flex: 1, backgroundColor: colors.background },
   contentContainer: { paddingBottom: spacing.xxl },
-  attentionBanner: {
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderRadius: radii.md,
-    backgroundColor: colors.warningSoft,
-  },
-  attentionBannerPressed: { opacity: 0.7 },
-  attentionBannerText: { ...typography.caption, color: colors.warning, fontWeight: '700' },
   filterRow: { flexGrow: 0 },
   filterRowContent: { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
   filterPill: {
