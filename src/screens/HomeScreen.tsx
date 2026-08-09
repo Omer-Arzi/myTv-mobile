@@ -12,7 +12,7 @@ import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
 import { SectionHeader } from '../components/SectionHeader';
 import { SeriesCard } from '../components/SeriesCard';
-import { CaughtUpCard, WatchNextCard, WatchNextCompletionOutcome } from '../components/WatchNextCard';
+import { WatchNextCard, WatchNextCompletionOutcome } from '../components/WatchNextCard';
 import { EmptyState } from '../components/EmptyState';
 import { AnimatedExitWrapper } from '../components/AnimatedExitWrapper';
 import { RootStackParamList } from '../navigation/types';
@@ -29,13 +29,23 @@ type Navigation = NativeStackNavigationProp<RootStackParamList>;
 // never makes the rail grow past what the server would itself return.
 const RECENTLY_WATCHED_LIMIT = 10;
 
-// How long a Watch Next card sits in its "success" state (green badge +
-// check, see CaughtUpCard) before being removed from the list — within the
-// task's specified ~600-900ms window. Also used as the (much shorter in
-// practice, but same mechanism) pause before an advance-to-next-episode
-// swap, so both post-watch outcomes go through one shared, consistently-
-// timed reconciliation path rather than two different UX rhythms.
-const POST_WATCH_RECONCILE_DELAY_MS = 750;
+// How long a Watch Next card sits in its full-card green success state
+// (WatchNextCard's own successOverlay — spinner, then a checkmark once the
+// mutation resolves) before this slot either advances to a real next
+// episode or is removed — same shared reconciliation path for both post-
+// watch outcomes, one consistently-timed UX rhythm rather than two.
+//
+// This is a target TOTAL from the moment the mutation starts (mutate-time,
+// not success-time) — see mutationStartedAtRef below — not a flat delay
+// tacked on after the response lands. That's deliberate: the success state
+// is an interaction-design choice, not a loading spinner for network
+// latency, so it shouldn't balloon past ~2s just because the response was
+// slow, nor feel instant/rushed just because the response was fast.
+// MIN_POST_SUCCESS_HOLD_MS is a floor on the resolved (checkmark) phase
+// specifically, so even a slow response still gets a beat of visible
+// confirmation rather than an instant snap straight into the swap/removal.
+const TOTAL_SUCCESS_HOLD_MS = 1800;
+const MIN_POST_SUCCESS_HOLD_MS = 500;
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -108,6 +118,12 @@ export function HomeScreen() {
   }, []);
   useEffect(() => clearPendingReconcileTimeouts, [clearPendingReconcileTimeouts]);
 
+  // When the in-flight mark-watched mutation actually started — set in
+  // onMutate, read in onSuccess to compute how much of TOTAL_SUCCESS_HOLD_MS
+  // is left to wait, so the success state's total visible duration stays
+  // close to the target regardless of how long the request itself took.
+  const mutationStartedAtRef = useRef<number | null>(null);
+
   const queryClient = useQueryClient();
   const { data, isLoading, isError, error, refetch, isRefetching } = useQuery({
     queryKey: queryKeys.home,
@@ -178,7 +194,7 @@ export function HomeScreen() {
     });
   }, []);
 
-  const schedulePostWatchReconciliation = useCallback((seriesId: string, episodeId: string, response: MarkWatchedResponse) => {
+  const schedulePostWatchReconciliation = useCallback((seriesId: string, episodeId: string, response: MarkWatchedResponse, delayMs: number) => {
     const existing = pendingReconcileTimeouts.current[seriesId];
     if (existing) clearTimeout(existing);
 
@@ -224,7 +240,7 @@ export function HomeScreen() {
         next.delete(episodeId);
         return next;
       });
-    }, POST_WATCH_RECONCILE_DELAY_MS);
+    }, delayMs);
 
     pendingReconcileTimeouts.current[seriesId] = timeout;
   }, [removeWatchNextSlot]);
@@ -235,7 +251,10 @@ export function HomeScreen() {
   // is exactly one mutation/business-logic path for both, not two.
   const markWatchedMutation = useMutation({
     mutationFn: ({ episodeId }: { episodeId: string; seriesId: string }) => markEpisodeWatched(episodeId),
-    onMutate: ({ episodeId }) => setPendingEpisodeId(episodeId),
+    onMutate: ({ episodeId }) => {
+      mutationStartedAtRef.current = Date.now();
+      setPendingEpisodeId(episodeId);
+    },
     onSuccess: (response, { episodeId, seriesId }) => {
       // Show the checked/"Watched" state on this slot right away...
       setPendingAdvanceEpisodeIds((prev) => new Set(prev).add(episodeId));
@@ -273,8 +292,13 @@ export function HomeScreen() {
       }
 
       // Advance-in-place (if a next episode exists) or remove-after-success
-      // (if not) — both after the same brief pause, via one shared path.
-      schedulePostWatchReconciliation(seriesId, episodeId, response);
+      // (if not) — both after the same brief pause, via one shared path. The
+      // pause is TOTAL_SUCCESS_HOLD_MS minus however long the request itself
+      // already took (floored at MIN_POST_SUCCESS_HOLD_MS) — see
+      // mutationStartedAtRef/TOTAL_SUCCESS_HOLD_MS above.
+      const elapsedSinceMutate = mutationStartedAtRef.current !== null ? Date.now() - mutationStartedAtRef.current : 0;
+      const holdDelay = Math.max(MIN_POST_SUCCESS_HOLD_MS, TOTAL_SUCCESS_HOLD_MS - elapsedSinceMutate);
+      schedulePostWatchReconciliation(seriesId, episodeId, response, holdDelay);
 
       // Background cache reconciliation for everything else this watch may
       // affect (series progress/next-episode on SeriesDetail if visited,
@@ -399,14 +423,12 @@ export function HomeScreen() {
             const completionOutcome = completionState[seriesId];
             const isWatched = pendingAdvanceEpisodeIds.has(item.nextEpisode.id);
 
-            const cardElement = completionOutcome ? (
-              <CaughtUpCard
-                seriesTitle={item.series.title}
-                imageUrl={pickImage(item.nextEpisode.imageUrl, item.series.backdropUrl, item.series.posterUrl)}
-                outcome={completionOutcome}
-                onPress={() => openSeries(item.series.id, item.series.title)}
-              />
-            ) : (
+            // Always WatchNextCard, never a separate CaughtUpCard branch —
+            // its own success overlay (successOutcome-aware) owns the entire
+            // post-watch hold for both outcomes now, so this slot never has
+            // to swap component types mid-transition (see that component's
+            // doc comment for why that matters for the same-slot crossfade).
+            const cardElement = (
               <WatchNextCard
                 seriesTitle={item.series.title}
                 // Compact landscape thumbnail — the episode still fits this
@@ -422,6 +444,7 @@ export function HomeScreen() {
                 isMarking={pendingEpisodeId === item.nextEpisode.id}
                 markDisabled={markWatchedMutation.isPending || isWatched}
                 isWatched={isWatched}
+                successOutcome={completionOutcome}
                 onSwipeLockChange={setIsSwipeLocked}
               />
             );

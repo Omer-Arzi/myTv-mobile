@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react-native';
-import { WatchNextCard, CaughtUpCard } from '../WatchNextCard';
+import { WatchNextCard, CaughtUpCard, shouldCommitSwipe } from '../WatchNextCard';
 
 const LRI = '⁦';
 const PDI = '⁩';
@@ -86,6 +86,40 @@ describe('WatchNextCard — remaining episodes indicator', () => {
     expect(getByText('Doctor Who')).toBeTruthy();
     expect(getByText('Utopia')).toBeTruthy();
     expect(getByLabelText('Mark episode as watched')).toBeTruthy();
+  });
+});
+
+// PanResponder's raw touch/gestureState machinery has no established
+// simulation pattern in this codebase's RTL setup (see other test files —
+// nothing fires real responderMove/touchStart sequences), so the actual
+// commit decision is exercised here directly as a pure function instead of
+// through a simulated gesture. Values are deliberately far from any real
+// constant's exact boundary (huge/tiny/zero) rather than hardcoding the
+// source's exact threshold numbers, so these don't silently drift out of
+// sync with WatchNextCard's own tuning.
+describe('shouldCommitSwipe — swipe commit decision', () => {
+  it('never commits on no movement, regardless of velocity', () => {
+    expect(shouldCommitSwipe(0, 0)).toBe(false);
+  });
+
+  it('does not commit on a small drag with no real velocity — avoids accidental triggering', () => {
+    expect(shouldCommitSwipe(5, 0)).toBe(false);
+  });
+
+  it('does not commit on high velocity alone with essentially no distance — a bump, not a flick', () => {
+    expect(shouldCommitSwipe(1, 50)).toBe(false);
+  });
+
+  it('commits on distance alone once dx is far past any reasonable threshold, even at zero velocity', () => {
+    expect(shouldCommitSwipe(100000, 0)).toBe(true);
+  });
+
+  it('commits on a fast flick — a real but short drag combined with high velocity — even far short of the full distance threshold', () => {
+    expect(shouldCommitSwipe(50, 5)).toBe(true);
+  });
+
+  it('does not commit on that same short drag distance at low/idle velocity — the fast-flick path requires real speed, not just some movement', () => {
+    expect(shouldCommitSwipe(50, 0.001)).toBe(false);
   });
 });
 
