@@ -44,7 +44,7 @@ const RECENTLY_WATCHED_LIMIT = 10;
 // MIN_POST_SUCCESS_HOLD_MS is a floor on the resolved (checkmark) phase
 // specifically, so even a slow response still gets a beat of visible
 // confirmation rather than an instant snap straight into the swap/removal.
-const TOTAL_SUCCESS_HOLD_MS = 1800;
+const TOTAL_SUCCESS_HOLD_MS = 2000;
 const MIN_POST_SUCCESS_HOLD_MS = 500;
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {

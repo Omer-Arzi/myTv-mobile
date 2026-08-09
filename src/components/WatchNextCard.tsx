@@ -62,12 +62,11 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 const CARD_WIDTH = SCREEN_WIDTH - spacing.lg * 2;
 
 // Commit gesture, not a full-track drag: crossing this fraction of the
-// card's own width is enough to commit — roughly 35-45% of card width, not
-// "almost to the edge." Once dx reaches this, commit() fires mid-drag (see
-// onPanResponderMove below), not only on release — the whole point of a
-// commit gesture is that the user doesn't have to keep dragging once it's
-// locked in.
-const SWIPE_COMMIT_THRESHOLD_RATIO = 0.4;
+// card's own width is enough to commit — 50%, not "almost to the edge."
+// Once dx reaches this, commit() fires mid-drag (see onPanResponderMove
+// below), not only on release — the whole point of a commit gesture is that
+// the user doesn't have to keep dragging once it's locked in.
+const SWIPE_COMMIT_THRESHOLD_RATIO = 0.5;
 const SWIPE_COMMIT_THRESHOLD = CARD_WIDTH * SWIPE_COMMIT_THRESHOLD_RATIO;
 
 // A second, independent way to commit: a short but fast flick. Distance
@@ -125,18 +124,26 @@ type GestureDirection = 'undetermined' | 'horizontal' | 'vertical';
 // episode watched without also firing the card's onPress navigation.
 //
 // Swipe-right is a second way to trigger the exact same action: a green
-// check affordance sits behind the card and is revealed as the card slides
-// right, growing more opaque/prominent the further it travels. This is a
-// commit gesture, not a full-track drag — crossing SWIPE_COMMIT_THRESHOLD
-// (~35-45% of card width) OR a short, fast flick (see FAST_SWIPE_* above)
-// commits immediately, mid-drag, without waiting for release: the card
-// snaps back to rest and a full-card green success overlay (spinner, then a
-// checkmark once the mutation resolves) fades in on top, covering both the
-// thumbnail and text — see successOverlayOpacity below. Release before
-// committing always springs back to rest with no mutation call. No gesture
-// library is installed, so this uses core RN PanResponder/Animated rather
-// than reanimated/gesture-handler — see GestureDirection below for how it
-// stays stable against a parent ScrollView on a diagonal drag despite that.
+// action layer sits behind the card at all times, and is revealed
+// spatially — not tinted in — as the card physically translates right,
+// tracking the finger 1:1 the entire time (translateX = dx, unclamped
+// until CARD_WIDTH). Crossing SWIPE_COMMIT_THRESHOLD (50% of card width) OR
+// a short, fast flick (see FAST_SWIPE_* above) commits, mid-drag, without
+// waiting for release — but "commit" here means the SAME translateX
+// animates the rest of the way out to fully off-screen (CARD_WIDTH) from
+// wherever the drag currently is, continuously, never snapping back to 0
+// first. Only once the card has actually vacated that space does the green
+// layer's content switch from a small peek-checkmark to the full success
+// row (spinner, then a checkmark + label once the mutation resolves) — see
+// isActiveSuccess below. Release before committing springs the SAME
+// translateX back to 0 with no mutation call — springing back to reveal
+// the (still on-screen) untouched card is the only other place translateX
+// ever moves; there is deliberately no second animated value/overlay layer
+// pretending to be a "success state" independent of this physical position.
+// No gesture library is installed, so this uses core RN PanResponder/
+// Animated rather than reanimated/gesture-handler — see GestureDirection
+// below for how it stays stable against a parent ScrollView on a diagonal
+// drag despite that.
 export function WatchNextCard({
   seriesTitle,
   imageUrl,
@@ -154,10 +161,24 @@ export function WatchNextCard({
   onSwipeLockChange,
 }: Props) {
   const remainingIndicator = getRemainingEpisodesIndicator(remainingEpisodesAfterNext, releaseStatus);
+  // Guards every imperative .start() call below against firing on/after
+  // unmount — this component can unmount mid-animation (the "series is now
+  // caught up, remove the slot" path removes it from the tree directly; see
+  // HomeScreen's removeWatchNextSlot), and useNativeDriver:true needs to
+  // resolve a live native view handle, which throws if that view is gone.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+  // The one animated value driving the entire physical sequence — drag
+  // reveal, auto-complete on commit, and sliding back to reveal whatever's
+  // underneath afterward (new content, or the untouched card on error).
+  // Deliberately never a second value/overlay layered on top pretending to
+  // be a separate "success state" — see the doc comment above.
   const translateX = useRef(new Animated.Value(0)).current;
-  // Full-card success overlay's own opacity — independent of translateX, see
-  // the isActiveSuccess effect below for what drives it.
-  const successOverlayOpacity = useRef(new Animated.Value(0)).current;
 
   // PanResponder is created once; callbacks read from this ref so they
   // always see the latest props without the responder being torn down and
@@ -179,20 +200,25 @@ export function WatchNextCard({
   const hasCommitted = useRef(false);
 
   const resetPosition = () => {
+    if (!isMountedRef.current) return;
     Animated.spring(translateX, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start();
   };
 
   // The one place a swipe-triggered commit happens, called from either
   // onPanResponderMove (the common case — mid-drag, before release) or
   // onPanResponderRelease (a safety net for a long slow drag whose move
-  // events happened to skip over the exact threshold-crossing frame). Snaps
-  // the card back to rest immediately — the green success overlay (driven
-  // by the isActiveSuccess effect below, via isMarking turning true from
-  // this same onMarkWatched call) takes over from here, so there is nowhere
-  // left for the card to visually travel to.
+  // events happened to skip over the exact threshold-crossing frame).
+  // Animates translateX the REST of the way out to CARD_WIDTH — fully
+  // off-screen (swipeContainer clips via overflow:hidden) — continuing from
+  // whatever position the drag already reached, never snapping back to 0
+  // first. This is "the animation takes over instead of requiring further
+  // finger movement": the user can lift their finger the instant this
+  // fires and the card keeps going on its own.
   const commit = () => {
     hasCommitted.current = true;
-    resetPosition();
+    if (isMountedRef.current) {
+      Animated.spring(translateX, { toValue: CARD_WIDTH, useNativeDriver: true, bounciness: 0 }).start();
+    }
     latest.current.onMarkWatched();
   };
 
@@ -235,8 +261,12 @@ export function WatchNextCard({
       onPanResponderMove: (_, gesture) => {
         if (hasCommitted.current) return; // the commit animation owns translateX now
 
+        // 1:1 tracking, the full drag range (not clamped to the commit
+        // threshold) — this is what makes "30% swipe -> 30% green revealed"
+        // true continuously, not just up to the threshold. CARD_WIDTH is
+        // just a sanity cap (there's nothing more to reveal past full width).
         const dx = Math.max(0, gesture.dx);
-        translateX.setValue(Math.min(dx, SWIPE_COMMIT_THRESHOLD));
+        translateX.setValue(Math.min(dx, CARD_WIDTH));
 
         if (shouldCommitSwipe(dx, gesture.vx)) commit();
       },
@@ -258,46 +288,45 @@ export function WatchNextCard({
     }),
   ).current;
 
-  // Drives the full-card green success overlay: fades in the instant either
-  // a mutation starts (isMarking, from a swipe commit OR a plain tap on the
-  // check circle — one shared visual for both trigger paths) or has just
-  // succeeded (isWatched), and fades back out the instant both go false
-  // again — which happens in exactly two cases: a failed mutation (rolls
-  // back to the untouched card, see onError in HomeScreen) or, for the
-  // "advance to a real next episode" case, the instant HomeScreen swaps
-  // this slot's content after its own post-watch hold — at which point the
-  // overlay fades away to reveal the NEW episode's content, already sitting
-  // underneath it, unseen, the whole time. That's the entire "same-slot
-  // replacement" trick: no second animated value or list diffing needed,
-  // just one opacity fading out over content that already changed while
-  // hidden. (The "series is now caught up, remove the slot" case never
-  // reaches this fade-out branch — the component unmounts instead, see
-  // HomeScreen's removeWatchNextSlot — so the overlay just stays fully
-  // green, undisturbed, right up until the whole row collapses/exits.)
+  // The other trigger for the same physical slide: a plain tap on the check
+  // circle (isMarking becomes true with translateX still at 0, since no
+  // gesture ever touched it) needs the SAME "card moves away, green success
+  // row takes over" treatment a swipe commit already gets — one shared
+  // visual for both trigger paths, matching the shared underlying mutation.
+  // Symmetrically, once the mutation settles (isMarking AND isWatched both
+  // false again) the card slides back to reveal whatever's now underneath:
+  // on success this is the NEW episode HomeScreen already swapped in while
+  // hidden (the entire "same-slot replacement" trick — no list diffing,
+  // just physical position over content that already changed while off-
+  // screen); on error it's the same untouched card, undoing the slide.
+  // (The "series is now caught up, remove the slot" case never reaches the
+  // "becoming inactive" branch — the component unmounts instead, see
+  // HomeScreen's removeWatchNextSlot — so the card just stays off-screen,
+  // green success row showing, right up until the whole row collapses.)
   const isActiveSuccess = isMarking || isWatched;
   const wasActiveSuccess = useRef(isActiveSuccess);
   useEffect(() => {
     if (isActiveSuccess !== wasActiveSuccess.current) {
-      Animated.timing(successOverlayOpacity, {
-        toValue: isActiveSuccess ? 1 : 0,
-        duration: isActiveSuccess ? 200 : 380,
-        useNativeDriver: true,
-      }).start();
+      if (isActiveSuccess) {
+        // A swipe commit already started this exact animation itself,
+        // synchronously, the instant the gesture crossed the threshold —
+        // hasCommitted is already true by the time this effect's prop
+        // update lands, so skip re-triggering it. A checkmark tap never
+        // sets hasCommitted, so this is the only place its slide starts.
+        if (!hasCommitted.current && isMountedRef.current) {
+          Animated.spring(translateX, { toValue: CARD_WIDTH, useNativeDriver: true, bounciness: 0 }).start();
+        }
+      } else {
+        // Becoming inactive — slide back into view, and reset hasCommitted
+        // so the NEXT trigger (swipe or tap) is evaluated fresh rather than
+        // inheriting a stale "already committed" flag from this cycle.
+        resetPosition();
+        hasCommitted.current = false;
+      }
     }
     wasActiveSuccess.current = isActiveSuccess;
-  }, [isActiveSuccess, successOverlayOpacity]);
-
-  // Once the mutation this swipe triggered settles (success or error), snap
-  // the card back — on error it lands back at rest with the row untouched;
-  // on success the row is about to disappear from the refetched list anyway.
-  const wasMarking = useRef(isMarking);
-  useEffect(() => {
-    if (wasMarking.current && !isMarking) {
-      resetPosition();
-    }
-    wasMarking.current = isMarking;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMarking]);
+  }, [isActiveSuccess]);
 
   const checkOpacity = translateX.interpolate({
     inputRange: [0, SWIPE_COMMIT_THRESHOLD],
@@ -317,10 +346,38 @@ export function WatchNextCard({
 
   return (
     <View style={styles.swipeContainer}>
+      {/* The one green layer, always present behind the card — revealed
+          spatially by the card's own translateX, never tinted/faded in on
+          top of it. Left-aligned (not centered) deliberately: this is the
+          SAME row/layout throughout both the proportional drag-reveal and
+          the full post-commit success state, so there is nothing to
+          reposition when isActiveSuccess flips — the checkmark just stays
+          exactly where it already was and a label appears/disappears
+          beside it. That's what makes the threshold crossing and the
+          eventual reveal-after-hold both jump-free. */}
       <View style={styles.swipeBackground} pointerEvents="none">
-        <Animated.Text style={[styles.swipeGlyph, { opacity: checkOpacity, transform: [{ scale: checkScale }] }]}>
-          ✓
-        </Animated.Text>
+        <View style={styles.swipeContentRow}>
+          {/* Always mounted — never conditionally swapped for the spinner
+              below. This Animated.Text is what holds checkOpacity/
+              checkScale, both interpolations of translateX itself; unmounting
+              it in the same render that also calls translateX's own
+              .start() (see the isActiveSuccess effect) is what caused a
+              real "unable to find node on an unmounted component" crash —
+              a stale native-animated-node reference mid-reconnect. The
+              spinner below is a plain, translateX-independent sibling that
+              can safely mount/unmount on its own. */}
+          <View>
+            <Animated.Text style={[styles.swipeGlyph, { opacity: checkOpacity, transform: [{ scale: checkScale }] }]}>
+              ✓
+            </Animated.Text>
+            {isMarking ? (
+              <View style={styles.swipeSpinnerOverlay}>
+                <ActivityIndicator size="small" color="#0A0A0D" />
+              </View>
+            ) : null}
+          </View>
+          {isActiveSuccess ? <Text style={styles.successLabel}>{overlayLabel}</Text> : null}
+        </View>
       </View>
 
       <Animated.View style={{ transform: [{ translateX }] }} {...panResponder.panHandlers}>
@@ -389,19 +446,6 @@ export function WatchNextCard({
           </Pressable>
         </Pressable>
       </Animated.View>
-
-      {/* Full-card success overlay — see the isActiveSuccess effect above.
-          pointerEvents="none": the check circle/card Pressables above already
-          disable themselves via isMarking/markDisabled, this just guarantees
-          no stray touch reaches anything while it's visible. */}
-      <Animated.View pointerEvents="none" style={[styles.successOverlay, { opacity: successOverlayOpacity }]}>
-        {isMarking ? (
-          <ActivityIndicator size="small" color="#0A0A0D" />
-        ) : (
-          <Text style={styles.successGlyph}>✓</Text>
-        )}
-        <Text style={styles.successLabel}>{overlayLabel}</Text>
-      </Animated.View>
     </View>
   );
 }
@@ -460,19 +504,19 @@ const styles = StyleSheet.create({
   swipeBackground: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: colors.success,
-    justifyContent: 'center',
+  },
+  // One row, left-aligned via paddingLeft — used identically for the small
+  // drag-proportional peek AND the full post-commit success state (see the
+  // render's doc comment above for why that's deliberate).
+  swipeContentRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     paddingLeft: spacing.lg,
   },
   swipeGlyph: { fontSize: 20, fontWeight: '700', color: '#0A0A0D' },
-  successOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.success,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-  successGlyph: { fontSize: 20, fontWeight: '700', color: '#0A0A0D' },
+  swipeSpinnerOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   successLabel: { fontSize: 15, fontWeight: '700', color: '#0A0A0D' },
   card: {
     flexDirection: 'row',
