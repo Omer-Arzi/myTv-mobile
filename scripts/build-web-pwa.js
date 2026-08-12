@@ -147,6 +147,37 @@ if (!html.includes('rel="manifest"')) {
         min-height: calc(49px + env(safe-area-inset-bottom)) !important;
       }
     </style>
+    <style id="DEBUG-ownership-outlines">
+      /* TEMPORARY diagnostic only — remove this whole <style> block once the
+         real-device gap investigation (docs/pwa.md's addendum chain) is
+         closed. window.innerHeight/visualViewport.height themselves are
+         under suspicion of under-reporting on real iOS standalone (both
+         read a self-consistent but possibly-wrong value in the last round
+         of telemetry), so this sidesteps trusting any JS measurement
+         entirely: a distinct, non-layout-affecting outline (not border —
+         outline never changes box size/position) at every wrapping level
+         from the raw document down to the tab-items row, each inset
+         further via a more negative outline-offset so all seven rings stay
+         individually visible even where boxes are the same size. Whichever
+         ring's edge visibly stops short of the true physical screen edge in
+         a real-device screenshot is the exact element whose box is wrong —
+         no guessing، no trusting any single already-suspect JS number.
+         Selectors below mirror the real ownership chain traced directly
+         from @react-navigation/bottom-tabs' own source (BottomTabView.tsx/
+         BottomTabBar.tsx): html/body (raw DOM) -> #root (React mount,
+         Expo's own reset) -> SafeAreaProvider's root view (App.tsx, its
+         only child) -> SafeAreaProviderCompat (BottomTabView's own flex
+         column, two levels above the tablist) -> the tab bar's own outer
+         element (already targeted above by the safety-net rule) ->
+         [role="tablist"] itself. */
+      html { outline: 3px solid red; outline-offset: -3px; }
+      body { outline: 3px solid orange; outline-offset: -6px; }
+      #root { outline: 3px solid yellow; outline-offset: -9px; }
+      #root > div { outline: 3px solid lime; outline-offset: -12px; }
+      div:has(> div > [role="tablist"]) { outline: 3px solid cyan; outline-offset: -15px; }
+      div:has(> [role="tablist"]) { outline: 3px solid magenta !important; outline-offset: -18px; }
+      [role="tablist"] { outline: 3px solid white; outline-offset: -21px; }
+    </style>
     <script>
       // Sets --app-vh from the real visual viewport (supported since iOS
       // 13), read by the height rule injected into #expo-reset above. Runs
