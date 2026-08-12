@@ -8,7 +8,7 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { WebAlertHost } from './src/components/WebAlertHost';
 import { AuthGate } from './src/components/AuthGate';
 import { colors } from './src/theme/theme';
-import { installRemoteLoggerListeners, logEvent } from './src/utils/remoteLogger';
+import { installRemoteLoggerListeners, installViewportDiagnosticsLogger, logEvent } from './src/utils/remoteLogger';
 
 // The currently-focused route's name, from React Navigation's own nested
 // state tree — used only for the web remote-logger breadcrumb below (see
@@ -48,6 +48,7 @@ export default function App() {
 
   useEffect(() => {
     installRemoteLoggerListeners();
+    installViewportDiagnosticsLogger();
   }, []);
 
   return (
