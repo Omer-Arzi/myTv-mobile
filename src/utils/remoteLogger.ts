@@ -93,12 +93,35 @@ export function installViewportDiagnosticsLogger(): void {
   probe.style.pointerEvents = 'none';
   document.body.appendChild(probe);
 
+  const rectSummary = (r: DOMRect | undefined) => (r ? { top: r.top, bottom: r.bottom, height: r.height } : null);
+
+  // Real-device screenshots (outline CSS, see build-web-pwa.js) showed
+  // html/body/#root correctly reaching almost the full physical height,
+  // while the tab bar's own box stopped well short — narrowing the gap to
+  // *somewhere between* #root and the tab bar, not the root container
+  // itself. Rather than add more hand-picked CSS selectors for each
+  // intermediate wrapper (SafeAreaProvider, NavigationContainer,
+  // RootNavigator, SafeAreaProviderCompat, ...), walk the real DOM chain
+  // from the tab bar up to #root and measure every level's actual box —
+  // this pinpoints exactly which ancestor's height first falls short, with
+  // no CSS selector guessing at all.
+  const walkAncestorChain = (from: Element | null, root: Element | null) => {
+    const chain: { tag: string; className: string; rect: { top: number; bottom: number; height: number } | null }[] = [];
+    let el: Element | null = from;
+    let guard = 0;
+    while (el && guard < 30) {
+      chain.push({ tag: el.tagName, className: typeof el.className === 'string' ? el.className.slice(0, 60) : '', rect: rectSummary(el.getBoundingClientRect()) });
+      if (el === root) break;
+      el = el.parentElement;
+      guard += 1;
+    }
+    return chain.reverse(); // root-to-leaf order, matching the visual top-to-bottom ownership hierarchy
+  };
+
   const report = () => {
     const root = document.getElementById('root');
-    const tabBar = document.querySelector('[role="tablist"]')?.parentElement ?? null;
+    const tablist = document.querySelector('[role="tablist"]');
     const rootRect = root?.getBoundingClientRect();
-    const tabBarRect = tabBar?.getBoundingClientRect();
-    const rectSummary = (r: DOMRect | undefined) => (r ? { top: r.top, bottom: r.bottom, height: r.height } : null);
 
     logEvent('viewport_diagnostics', {
       windowInnerHeight: window.innerHeight,
@@ -107,7 +130,7 @@ export function installViewportDiagnosticsLogger(): void {
       documentElementOffsetHeight: document.documentElement.offsetHeight,
       documentElementClientHeight: document.documentElement.clientHeight,
       rootBoundingClientRect: rectSummary(rootRect),
-      tabBarBoundingClientRect: rectSummary(tabBarRect),
+      ancestorChainRootToTablist: tablist ? walkAncestorChain(tablist, root) : null,
       computedSafeAreaInsetBottom: parseInt(window.getComputedStyle(probe).paddingBottom || '0', 10),
       isStandalone:
         window.matchMedia('(display-mode: standalone)').matches ||
