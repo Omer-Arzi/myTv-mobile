@@ -364,3 +364,49 @@ least this one highly-visible element. Verified structurally (the selector match
 node, computed styles reflect the rule) via headless Chromium — but a normal desktop/emulated browser
 has no real safe-area inset to observe, so **this remains an unproven best-effort mitigation, not a
 confirmed fix — still needs the same real-device re-check this whole addendum chain keeps needing.**
+
+### Fourth addendum: real root cause found via real-device telemetry, not another structural guess
+
+Three more rounds of structural reasoning (this file, extensively) and Chromium/Playwright-based
+verification never actually confirmed or denied whether the gap was fixed — because neither can
+reproduce a real notched iPhone's `env(safe-area-inset-bottom)` or standalone-mode
+`window.visualViewport` behavior at all (confirmed directly: Chromium's own CDP
+`Emulation.setSafeAreaInsetsOverride` rejects every parameter shape tried, current build). Rather than
+a fifth structural guess, this pass added `installViewportDiagnosticsLogger` (`src/utils/
+remoteLogger.ts`, wired into `App.tsx`) — reusing the existing `POST /client-logs` → `railway logs`
+pipeline this app already has for exactly this class of bug — to report real window/`visualViewport`/
+`documentElement` heights, `#root` and the tab bar's actual bounding rects, and an independently-
+measured `env(safe-area-inset-bottom)`, from the real installed PWA.
+
+**What it showed, verbatim (timestamps from `railway logs`):**
+
+- **10:47:09–10, fresh load, Home tab**: `windowInnerHeight: 874`, `visualViewportHeight: 874`,
+  `computedSafeAreaInsetBottom: 34`, `isStandalone: true`. Tab bar `bottom: 874` — flush with the
+  window, **no gap**. The `--app-vh` mechanism was working correctly at this point.
+- **10:47:12.491, navigating into Search**: still `windowInnerHeight: 874`, still no gap.
+- **10:47:12.547, 56ms later**: `visualViewportHeight: 498` — `windowInnerHeight` unchanged at `874`.
+  Because `--app-vh` was bound to `visualViewport`'s own `resize` event, this single event
+  immediately shrank the entire root container (`#root`, tab bar included) to `498px` tall while the
+  physical screen stayed `874px` — a **376px black gap**, live, matching exactly what was reported.
+- **10:47:13.710, ~1.2s later**: settled at `windowInnerHeight: 812`, `visualViewportHeight: 812` —
+  internally consistent again (no gap at that instant), but **62px shorter than the original 874**,
+  with nothing left to ever correct it back.
+
+**Root cause**: Search's text input triggers iOS's on-screen-keyboard viewport handling, and even a
+brief focus/blur cycle causes `visualViewport.height` to dip and then permanently under-report
+afterward — an iOS Safari standalone-mode quirk, not anything under this app's control. The `--app-vh`
+script trusted every `resize`/`visualViewport` `resize` event unconditionally, so it inherited both the
+transient glitch and the permanent under-report. This is a different, more specific bug than anything
+earlier addenda considered — not a CSS-ownership problem (the tab bar's own height/padding/background
+model was independently verified correct this pass by reproducing its exact DOM/CSS in an isolated
+harness), and not a double-inset problem (none exists currently). It only manifests after interacting
+with a screen that has a text input, which is exactly what earlier real-device reports ("looked fine at
+first, came back after visiting Search") were actually describing.
+
+**Fix**: `scripts/build-web-pwa.js`'s `--app-vh` script now only re-measures on `orientationchange` —
+a real, rare, layout-significant event — never on plain `resize`/`visualViewport` `resize`. This app is
+portrait-locked (`app.json`'s `expo.orientation: "portrait"`), so `orientationchange` alone is
+sufficient coverage for any resize that should legitimately reshape the app shell; a keyboard
+appearing should never do that. The diagnostic logger is left in place for one more deploy to confirm
+this against real telemetry rather than trusting it blind — remove `installViewportDiagnosticsLogger`
+(`App.tsx`/`remoteLogger.ts`) once confirmed.

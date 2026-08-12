@@ -82,9 +82,9 @@ if (!html.includes('rel="manifest"')) {
   // `window.visualViewport` by the inline script below, added as a THIRD
   // declaration so it wins whenever JS has run: it measures the real
   // visual viewport directly (supported since iOS 13, well before `dvh`
-  // existed) and is kept in sync on resize/orientation change, so
-  // react-native-safe-area-context's one-time measurement reads the
-  // correct value regardless of `dvh` support or timing. Each declaration
+  // existed), and — as of the real-device-telemetry-driven fix described
+  // in that script's own comment — is deliberately only re-measured on
+  // orientationchange afterward, not on every resize. Each declaration
   // is additive, not a replacement — an unsupported value/property is
   // ignored outright by the CSS parser (not invalid-so-fall-back-to-auto),
   // so browsers missing a later feature keep the last one they understood.
@@ -153,19 +153,35 @@ if (!html.includes('rel="manifest"')) {
       // synchronously here in <head>, before the deferred app bundle even
       // starts downloading, so react-native-safe-area-context's own
       // one-time mount measurement (document.documentElement.offsetHeight)
-      // always sees the correct value. Kept in sync afterwards too, since
-      // that library never re-measures on its own.
+      // always sees the correct value.
+      //
+      // Deliberately re-measured ONLY on orientationchange after that
+      // initial read — NOT on 'resize' or visualViewport's own 'resize',
+      // despite earlier versions of this fix listening to both. Real-device
+      // telemetry (POST /client-logs, see mobile/docs/pwa.md's addendum
+      // chain) caught this live: visualViewport.height read a correct 874
+      // on fresh load (tab bar flush with the true bottom edge, no gap),
+      // then a 'resize' event fired mid-navigation into a screen with a
+      // text input and visualViewport.height reported 498 — a keyboard-
+      // interaction artifact, not a real layout change — which this
+      // listener immediately wrote into --app-vh, shrinking the entire app
+      // shell (tab bar included) to 498px tall while the physical screen
+      // stayed 874px, a ~376px black gap live. It "recovered" afterward,
+      // but to 812, not the original 874 — a lasting ~62px under-report
+      // with no further event ever correcting it, since both
+      // window.innerHeight and visualViewport.height had by then settled
+      // on the wrong value together. This app is portrait-locked
+      // (app.json's expo.orientation: "portrait"), so orientationchange is
+      // the only event that should ever legitimately reshape the app
+      // shell; keyboard-driven resizes should affect the focused input's
+      // own scroll position, never the root container's height.
       (function () {
         function setAppVh() {
           var h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
           document.documentElement.style.setProperty('--app-vh', h + 'px');
         }
         setAppVh();
-        window.addEventListener('resize', setAppVh);
         window.addEventListener('orientationchange', setAppVh);
-        if (window.visualViewport) {
-          window.visualViewport.addEventListener('resize', setAppVh);
-        }
       })();
     </script>
     <script>
