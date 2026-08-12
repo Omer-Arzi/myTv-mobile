@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ActivityIndicator, Animated, Dimensions, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Dimensions, Easing, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import { PosterImage } from './PosterImage';
 import { colors, radii, spacing } from '../theme/theme';
 import { getRemainingEpisodesIndicator } from '../utils/remainingEpisodesIndicator';
@@ -91,6 +91,17 @@ export function shouldCommitSwipe(dx: number, vx: number): boolean {
   return dx >= FAST_SWIPE_MIN_DISTANCE && vx >= FAST_SWIPE_VELOCITY_THRESHOLD;
 }
 
+// The "next episode gently arrives" entrance, reserved for a genuine
+// advance to a real next episode — never for the failure/rollback path
+// (which keeps the original right-to-left reveal, see the isActiveSuccess
+// effect below) and never for a caught-up/completed removal (which gets no
+// card-level animation at all — the row itself collapses/unmounts). A small
+// offset, not a slide: the watched episode already left toward the right
+// during commit, so this is "forward progress continuing," not a second big
+// traversal of the row.
+const NEXT_EPISODE_ENTRANCE_OFFSET = -20; // within the requested -15 to -25px range
+const NEXT_EPISODE_ENTRANCE_DURATION_MS = 240; // within the requested 200-300ms range
+
 // --- Direction-lock thresholds ---------------------------------------
 // A mostly-horizontal drag needs to stay captured by this card even when
 // the finger drifts up/down a little; a mostly-vertical drag needs to
@@ -136,10 +147,23 @@ type GestureDirection = 'undetermined' | 'horizontal' | 'vertical';
 // layer's content switch from a small peek-checkmark to the full success
 // row (spinner, then a checkmark + label once the mutation resolves) — see
 // isActiveSuccess below. Release before committing springs the SAME
-// translateX back to 0 with no mutation call — springing back to reveal
-// the (still on-screen) untouched card is the only other place translateX
-// ever moves; there is deliberately no second animated value/overlay layer
-// pretending to be a "success state" independent of this physical position.
+// translateX back to 0 with no mutation call.
+//
+// What happens once the mutation settles is where the three outcomes
+// deliberately diverge, each with its own animation meaning (see the
+// isActiveSuccess effect below for exactly how each is told apart):
+//   - Failure: the SAME right-to-left reveal (translateX CARD_WIDTH -> 0)
+//     as before this row — reads as "undoing" the swipe, since the same,
+//     untouched episode comes back into view from the right.
+//   - Genuine advance to a real next episode: a distinct, much smaller
+//     "arrives from the left" entrance instead — translateX from a small
+//     negative offset back to 0, combined with a contentOpacity fade-in —
+//     over content HomeScreen already swapped in while hidden. Deliberately
+//     NOT the right-to-left reveal, so success and rollback never look the
+//     same gesture in reverse.
+//   - Caught-up/completed: no card-level animation at all — HomeScreen is
+//     already removing the whole row (unmount on native, AnimatedExitWrapper
+//     collapse on web).
 // No gesture library is installed, so this uses core RN PanResponder/
 // Animated rather than reanimated/gesture-handler — see GestureDirection
 // below for how it stays stable against a parent ScrollView on a diagonal
@@ -173,12 +197,16 @@ export function WatchNextCard({
       isMountedRef.current = false;
     };
   }, []);
-  // The one animated value driving the entire physical sequence — drag
-  // reveal, auto-complete on commit, and sliding back to reveal whatever's
-  // underneath afterward (new content, or the untouched card on error).
-  // Deliberately never a second value/overlay layered on top pretending to
-  // be a separate "success state" — see the doc comment above.
+  // The one animated value driving drag reveal, auto-complete on commit, and
+  // the failure-rollback reveal (translateX CARD_WIDTH -> 0, unchanged —
+  // see the isActiveSuccess effect below). Also reused, briefly, for the
+  // small next-episode entrance offset on a genuine advance — never a
+  // second value pretending to be an independent "success state."
   const translateX = useRef(new Animated.Value(0)).current;
+  // Opacity for the next-episode entrance fade ONLY — stays at 1 (a no-op)
+  // for every other state: drag, commit, hold, and the failure rollback all
+  // leave this untouched.
+  const contentOpacity = useRef(new Animated.Value(1)).current;
 
   // PanResponder is created once; callbacks read from this ref so they
   // always see the latest props without the responder being torn down and
@@ -293,18 +321,13 @@ export function WatchNextCard({
   // gesture ever touched it) needs the SAME "card moves away, green success
   // row takes over" treatment a swipe commit already gets — one shared
   // visual for both trigger paths, matching the shared underlying mutation.
-  // Symmetrically, once the mutation settles (isMarking AND isWatched both
-  // false again) the card slides back to reveal whatever's now underneath:
-  // on success this is the NEW episode HomeScreen already swapped in while
-  // hidden (the entire "same-slot replacement" trick — no list diffing,
-  // just physical position over content that already changed while off-
-  // screen); on error it's the same untouched card, undoing the slide.
-  // (The "series is now caught up, remove the slot" case never reaches the
-  // "becoming inactive" branch — the component unmounts instead, see
-  // HomeScreen's removeWatchNextSlot — so the card just stays off-screen,
-  // green success row showing, right up until the whole row collapses.)
   const isActiveSuccess = isMarking || isWatched;
   const wasActiveSuccess = useRef(isActiveSuccess);
+  // Whether isWatched was true just before "becoming inactive" fires — the
+  // only way isWatched is ever true is a successful onSuccess (see
+  // HomeScreen), so this is what tells a genuine advance apart from a
+  // failure below, neither of which touches successOutcome.
+  const wasWatched = useRef(isWatched);
   useEffect(() => {
     if (isActiveSuccess !== wasActiveSuccess.current) {
       if (isActiveSuccess) {
@@ -316,17 +339,68 @@ export function WatchNextCard({
         if (!hasCommitted.current && isMountedRef.current) {
           Animated.spring(translateX, { toValue: CARD_WIDTH, useNativeDriver: true, bounciness: 0 }).start();
         }
-      } else {
-        // Becoming inactive — slide back into view, and reset hasCommitted
-        // so the NEXT trigger (swipe or tap) is evaluated fresh rather than
-        // inheriting a stale "already committed" flag from this cycle.
-        resetPosition();
-        hasCommitted.current = false;
+      } else if (isMountedRef.current) {
+        // Becoming inactive — the mutation settled. Three distinct outcomes
+        // share this one transition, told apart by signals that already
+        // exist (no new props needed):
+        if (successOutcome) {
+          // Caught-up/completed — HomeScreen is already removing this slot
+          // (unmounting outright on native; mid-AnimatedExitWrapper-collapse
+          // on web, where successOutcome is still set at this exact instant
+          // — see HomeScreen's schedulePostWatchReconciliation). No
+          // card-level animation here at all: reviving translateX (either
+          // the old reveal or the new entrance) would fight that external
+          // collapse. "Do not bring anything back from the right."
+        } else if (wasWatched.current) {
+          // Genuine advance — HomeScreen already swapped this slot's
+          // content in while hidden (the watched episode already "left
+          // toward the right" during commit, and is still sitting at
+          // CARD_WIDTH). Skip the old right-to-left reveal entirely for
+          // this outcome: snap to just left of rest — invisible, since
+          // opacity is snapped to 0 in the same synchronous block, so nothing
+          // visibly jumps — then gently animate the already-new content in:
+          // a small left offset + fade. Right-to-left is reserved for
+          // rollback only from here on.
+          translateX.setValue(NEXT_EPISODE_ENTRANCE_OFFSET);
+          contentOpacity.setValue(0);
+          Animated.parallel([
+            Animated.timing(translateX, {
+              toValue: 0,
+              duration: NEXT_EPISODE_ENTRANCE_DURATION_MS,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            }),
+            Animated.timing(contentOpacity, {
+              toValue: 1,
+              duration: NEXT_EPISODE_ENTRANCE_DURATION_MS,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            }),
+          ]).start();
+        } else {
+          // Failure — isWatched never became true this cycle, so nothing
+          // changed underneath. Undo via the ORIGINAL right-to-left reveal,
+          // unchanged from before this task: the same episode comes back
+          // from the right, as if the action never happened.
+          resetPosition();
+        }
+        // Deliberately NOT resetting hasCommitted here (a real, since-fixed
+        // bug this task's testing caught): if the mutation settles fast
+        // enough — a rejection typically does — while the SAME physical
+        // gesture is still ongoing (finger/mouse still down, dx still past
+        // threshold), resetting this mid-gesture lets the very next move
+        // event re-run shouldCommitSwipe and call commit() again, and again,
+        // for as long as the touch stays down — a real duplicate-mutation
+        // loop, not just a test artifact (reproduced via a live drag that
+        // stayed down past a fast-failing request). hasCommitted only ever
+        // needs to reset at the start of a genuinely NEW gesture, which
+        // onStartShouldSetPanResponder above already does unconditionally.
       }
     }
     wasActiveSuccess.current = isActiveSuccess;
+    wasWatched.current = isWatched;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isActiveSuccess]);
+  }, [isActiveSuccess, isWatched, successOutcome]);
 
   const checkOpacity = translateX.interpolate({
     inputRange: [0, SWIPE_COMMIT_THRESHOLD],
@@ -380,7 +454,7 @@ export function WatchNextCard({
         </View>
       </View>
 
-      <Animated.View style={{ transform: [{ translateX }] }} {...panResponder.panHandlers}>
+      <Animated.View style={{ transform: [{ translateX }], opacity: contentOpacity }} {...panResponder.panHandlers}>
         <Pressable
           style={({ pressed }) => [styles.card, pressed && styles.pressed, isWatched && styles.cardWatched]}
           // Guarded by hasCommitted, not just onPanResponderRelease's own
