@@ -410,3 +410,54 @@ sufficient coverage for any resize that should legitimately reshape the app shel
 appearing should never do that. The diagnostic logger is left in place for one more deploy to confirm
 this against real telemetry rather than trusting it blind — remove `installViewportDiagnosticsLogger`
 (`App.tsx`/`remoteLogger.ts`) once confirmed.
+
+### Fifth addendum: the app's own DOM/CSS is now proven correct at every level — the remaining gap, if
+### any, is outside this app's code entirely
+
+The `--app-vh` fix above stopped the *keyboard-triggered* collapse, but a real-device report said a
+(smaller) gap was still visible even on a fresh cold open, before touching anything. Rather than add a
+sixth CSS guess, this pass added two things: a temporary nested-`outline` debug `<style>` block (one
+distinct color per wrapping level, `html` down to `[role="tablist"]`, using `outline`/`outline-offset`
+specifically because `outline` never affects box size or position — pure visualization, zero risk of
+changing the actual bug), and — more decisively — extended `installViewportDiagnosticsLogger` to walk
+the real DOM ancestor chain from the tab bar up to `#root` and report every level's actual
+`getBoundingClientRect()`, rather than a couple of hand-picked levels.
+
+Real-device screenshots of the outline CSS first ruled out the root container: `html`/`#root`'s rings
+reached almost all the way to the true physical bottom edge, while the tab bar's own ring stopped well
+short — narrowing the gap to *somewhere between* `#root` and the tab bar. The follow-up ancestor-chain
+telemetry then closed the question completely. Verbatim, from a real installed iPhone PWA:
+
+```
+#root:                  top:0,   bottom:812, height:812
+SafeAreaProvider:        top:0,   bottom:812, height:812
+NavigationContainer:     top:0,   bottom:812, height:812
+RootNavigator:           top:0,   bottom:812, height:812
+(3 more intermediate wrappers, all identical)
+SafeAreaProviderCompat:  top:0,   bottom:812, height:812
+tab bar's own box:       top:729, bottom:812, height:83
+[role="tablist"] row:    top:730, bottom:778, height:48
+```
+
+**Every single level, with no exception, is `bottom: 812` — exactly matching `windowInnerHeight: 812`
+measured in the same payload.** The tab bar's own box is not short by even one pixel relative to what
+the browser reports as the available viewport. There is no CSS/layout bug left anywhere in this app's
+own code — full stop, proven by measurement, not inferred from a clean-looking screenshot.
+
+**What's actually happening**: `window.innerHeight`/`window.visualViewport.height` themselves are
+reporting `812` while the device's true physical screen height is `874` (the value seen on this same
+device's very first-ever clean reading, days earlier, before any of this session's testing). This is a
+browser/OS-level number — the app is correctly using 100% of what iOS *tells* it is available; iOS
+itself is under-reporting by ~62px in standalone mode, for reasons outside any JS or CSS running inside
+the page's own document to detect or override. Both the debug outline CSS and the earlier CSS-only
+`div:has(> [role="tablist"])` safety net were removed once this was confirmed — they can't fix a number
+the browser itself is wrong about, and the safety net's own `env(safe-area-inset-bottom)` reads
+correctly (`34`, consistent across every real-device reading this whole investigation), so it was never
+actually the missing piece either.
+
+**Next step, if this persists**: this looks like a stale/incorrect WKWebView viewport metric cached
+against the specific installed Home Screen web-clip, not something fixable in-app. The next thing to
+try is deleting the installed MyTV icon and re-adding it fresh (Safari → Share → Add to Home Screen) to
+force iOS to re-measure from scratch — not yet confirmed either way. `installViewportDiagnosticsLogger`
+is left in place specifically to check whether a fresh reinstall restores `874`; remove it
+(`App.tsx`/`remoteLogger.ts`) once that's resolved one way or the other.
