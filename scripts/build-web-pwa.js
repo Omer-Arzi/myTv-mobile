@@ -127,26 +127,6 @@ if (!html.includes('rel="manifest"')) {
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="MyTV">
-    <style>
-      /* A CSS-only safety net for the bottom tab bar's safe-area padding,
-         independent of react-native-safe-area-context's JS-measured
-         insets.bottom entirely — see the html/body height comment above and
-         docs/pwa.md's addenda for the underlying document.documentElement.
-         offsetHeight timing bug this sidesteps. @react-navigation/bottom-tabs
-         gives its tab-items row a stable role="tablist" (confirmed in its
-         own source) and it's the only such element in this app, so
-         targeting its parent (the actual bar element carrying height/
-         padding) via :has() is safe and specific. env(safe-area-inset-bottom)
-         resolves natively and synchronously in CSS, with no JS measurement
-         race at all — this is a best-effort mitigation for a bug the JS
-         layer has not fully resolved, not a replacement for it. Needs a
-         real-device recheck (Playwright/emulation can't reproduce true iOS
-         standalone-mode chrome-hiding). */
-      div:has(> [role="tablist"]) {
-        padding-bottom: env(safe-area-inset-bottom) !important;
-        min-height: calc(49px + env(safe-area-inset-bottom)) !important;
-      }
-    </style>
     <script>
       // Sets --app-vh from the real visual viewport (supported since iOS
       // 13), read by the height rule injected into #expo-reset above. Runs
