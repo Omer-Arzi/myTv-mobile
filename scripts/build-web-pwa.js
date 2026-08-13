@@ -82,9 +82,11 @@ if (!html.includes('rel="manifest"')) {
   // `window.visualViewport` by the inline script below, added as a THIRD
   // declaration so it wins whenever JS has run: it measures the real
   // visual viewport directly (supported since iOS 13, well before `dvh`
-  // existed), and — as of the real-device-telemetry-driven fix described
-  // in that script's own comment — is deliberately only re-measured on
-  // orientationchange afterward, not on every resize. Each declaration
+  // existed), and — as of the real-device-telemetry-driven fixes described
+  // in that script's own comment — is re-measured a few times via one-shot
+  // delayed timers shortly after load (to catch a late-settling zoom/chrome
+  // adjustment), then only on orientationchange after that, never on a
+  // live/ongoing resize listener. Each declaration
   // is additive, not a replacement — an unsupported value/property is
   // ignored outright by the CSS parser (not invalid-so-fall-back-to-auto),
   // so browsers missing a later feature keep the last one they understood.
@@ -135,32 +137,48 @@ if (!html.includes('rel="manifest"')) {
       // one-time mount measurement (document.documentElement.offsetHeight)
       // always sees the correct value.
       //
-      // Deliberately re-measured ONLY on orientationchange after that
-      // initial read — NOT on 'resize' or visualViewport's own 'resize',
-      // despite earlier versions of this fix listening to both. Real-device
-      // telemetry (POST /client-logs, see mobile/docs/pwa.md's addendum
-      // chain) caught this live: visualViewport.height read a correct 874
-      // on fresh load (tab bar flush with the true bottom edge, no gap),
-      // then a 'resize' event fired mid-navigation into a screen with a
-      // text input and visualViewport.height reported 498 — a keyboard-
-      // interaction artifact, not a real layout change — which this
-      // listener immediately wrote into --app-vh, shrinking the entire app
-      // shell (tab bar included) to 498px tall while the physical screen
-      // stayed 874px, a ~376px black gap live. It "recovered" afterward,
-      // but to 812, not the original 874 — a lasting ~62px under-report
-      // with no further event ever correcting it, since both
-      // window.innerHeight and visualViewport.height had by then settled
-      // on the wrong value together. This app is portrait-locked
+      // Deliberately NOT re-measured on 'resize' or visualViewport's own
+      // 'resize' as a live, ongoing listener — despite earlier versions of
+      // this fix listening to both. Real-device telemetry (POST
+      // /client-logs, see mobile/docs/pwa.md's addendum chain) caught this
+      // live: visualViewport.height read a correct 874 on fresh load (tab
+      // bar flush with the true bottom edge, no gap), then a 'resize' event
+      // fired mid-navigation into a screen with a text input and
+      // visualViewport.height reported 498 — a keyboard-interaction
+      // artifact, not a real layout change — which a live listener
+      // immediately wrote into --app-vh, shrinking the entire app shell
+      // (tab bar included) to 498px tall while the physical screen stayed
+      // 874px, a ~376px black gap live. This app is portrait-locked
       // (app.json's expo.orientation: "portrait"), so orientationchange is
-      // the only event that should ever legitimately reshape the app
-      // shell; keyboard-driven resizes should affect the focused input's
-      // own scroll position, never the root container's height.
+      // the only *ongoing* event that should ever legitimately reshape the
+      // app shell; keyboard-driven resizes should affect the focused
+      // input's own scroll position, never the root container's height.
+      //
+      // But a single synchronous read isn't always enough either — a later
+      // real-device diagnostic (same /client-logs channel) caught the
+      // opposite failure: documentElementOffsetHeight (driven by --app-vh)
+      // stuck at 812, a stale pre-settle read, while the live
+      // windowInnerHeight/visualViewport.height had already settled to 760
+      // (iOS Safari per-site zoom, whose effect on the visual viewport
+      // isn't always reflected yet at the exact moment this script's first
+      // synchronous line runs) — the tab bar's own bottom edge (778) landed
+      // 18px past the real 760px fold, clipping its label row off-screen.
+      // With no further event ever correcting it (orientationchange never
+      // fires from a zoom settle), that stale value would otherwise persist
+      // for the entire session. Fixed with a few one-shot, fixed-delay
+      // re-reads early after load — NOT a live listener, so it can't
+      // reintroduce the keyboard-resize corruption bug above: none of these
+      // timers are still pending by the time a user could plausibly have
+      // focused a text input.
       (function () {
         function setAppVh() {
           var h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
           document.documentElement.style.setProperty('--app-vh', h + 'px');
         }
         setAppVh();
+        setTimeout(setAppVh, 100);
+        setTimeout(setAppVh, 500);
+        setTimeout(setAppVh, 1500);
         window.addEventListener('orientationchange', setAppVh);
       })();
     </script>
