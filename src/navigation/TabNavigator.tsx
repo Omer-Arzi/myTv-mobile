@@ -22,7 +22,40 @@ export function TabNavigator() {
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.textTertiary,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        // lineHeight is explicit — @react-navigation/bottom-tabs' own
+        // default label style (BottomTabItem.tsx's styles.labelBeneath) is
+        // `{ fontSize: 10 }` with NO lineHeight set, so it inherits whatever
+        // line box react-native-web sizes for that smaller default.
+        // Overriding fontSize here (11, not 10) without also setting
+        // lineHeight left descenders (the "y" in "System", the tail of the
+        // "t" in "Watchlist") clipped at the bottom, inside the Label
+        // component's numberOfLines={1} truncation box — confirmed via a
+        // real-device screenshot showing exactly those two labels (both
+        // have descenders) cut off while "Home"/"Search" (neither does)
+        // rendered fine.
+        //
+        // The label's own requested line box isn't free to grow, though —
+        // measured directly (real DOM): the tab item's total height is
+        // fixed at 48px (49 + insets.bottom, see BottomTabBar.tsx), and
+        // that 48px is split between the icon (28px, TabBarIcon.tsx's
+        // hardcoded ICON_SIZE_TALL) and the library's own default vertical
+        // padding (5+5=10px) BEFORE the label ever gets a share — leaving
+        // only 48-10-28=10px, a hard flex-shrink ceiling no lineHeight can
+        // exceed on its own. That padding lives on BottomTabItem's inner
+        // `<a role="tab">` button (styles.tab/tabVerticalUiKit), which is a
+        // different DOM node than the one `tabBarItemStyle` below actually
+        // reaches (BottomTabItem's OUTER wrapping `<View>`) — so padding
+        // can't be freed from this screen's options at all, only the icon
+        // can. tabBarIconStyle below IS applied (as a later array entry)
+        // directly to TabBarIcon's own sizing View, so its height can be
+        // overridden here: shrinking it 28 -> 24 frees 4px (48-10-24=14),
+        // enough for a 14px label line box. The icon glyph itself still
+        // renders at its own fixed 25px (TabBarIcon.tsx computes that
+        // separately, unaffected by this wrapper override) and its
+        // containing View has no overflow:hidden anywhere up the chain, so
+        // it's simply centered in a slightly smaller box — not clipped.
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600', lineHeight: 14 },
+        tabBarIconStyle: { height: 24 },
         // minWidth: 0 overrides the browser's flexbox default (min-width:
         // auto, which lets intrinsic text width win over the flex item's
         // allotted space) — without it, react-native-web's numberOfLines={1}
