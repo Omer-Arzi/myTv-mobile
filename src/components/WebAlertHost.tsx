@@ -151,11 +151,17 @@ const styles = StyleSheet.create({
   buttonStack: { marginTop: spacing.md, marginHorizontal: -spacing.lg, marginBottom: -spacing.lg },
   rowButton: { flex: 1, paddingVertical: spacing.sm, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' },
   rowButtonDefault: { backgroundColor: colors.accent },
-  rowButtonDefaultText: { color: '#0A0A0D', fontWeight: '700', fontSize: 15 },
+  // textAlign is required here even though the Pressable already centers
+  // the text block via alignItems/justifyContent — that only centers the
+  // block as a whole. A longer label (e.g. "Mark as unwatched") wraps to
+  // two lines inside these flex:1, half-width buttons, and without
+  // textAlign each wrapped line defaults to left-aligned, which looks
+  // off-center relative to the shorter line above/below it.
+  rowButtonDefaultText: { color: '#0A0A0D', fontWeight: '700', fontSize: 15, textAlign: 'center' },
   rowButtonCancel: { backgroundColor: colors.surfaceElevated },
-  rowButtonCancelText: { ...typography.body, fontWeight: '600' },
+  rowButtonCancelText: { ...typography.body, fontWeight: '600', textAlign: 'center' },
   rowButtonDestructive: { backgroundColor: colors.danger },
-  rowButtonDestructiveText: { color: '#0A0A0D', fontWeight: '700', fontSize: 15 },
+  rowButtonDestructiveText: { color: '#0A0A0D', fontWeight: '700', fontSize: 15, textAlign: 'center' },
   stackButton: { paddingVertical: spacing.md, alignItems: 'center', justifyContent: 'center' },
   stackButtonDivider: { borderTopWidth: 1, borderTopColor: colors.border },
   stackButtonDefaultText: { ...typography.body, color: colors.accent, fontWeight: '600' },

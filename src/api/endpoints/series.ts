@@ -44,3 +44,12 @@ export function updateSeriesStatus(seriesId: string, userStatus: ManualUserStatu
 export function watchSeriesAllReleased(seriesId: string, body: WatchAllRequest = {}): Promise<WatchAllResponse> {
   return apiClient.post<WatchAllResponse>(`/series/${encodeURIComponent(seriesId)}/watch-all-released`, body);
 }
+
+// Distinct from updateSeriesStatus — this only ever removes the
+// WatchlistItem row (userStatus WATCHLIST -> UNKNOWN server-side), never
+// touches catalog or watch history. Not the same as deleteSeries (a true,
+// irreversible hard-delete of the whole series). Server returns 204 No
+// Content, so there's nothing to return here.
+export function removeFromWatchlist(seriesId: string): Promise<void> {
+  return apiClient.delete<void>(`/series/${encodeURIComponent(seriesId)}/watchlist`);
+}

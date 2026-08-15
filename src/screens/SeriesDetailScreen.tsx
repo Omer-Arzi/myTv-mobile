@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AlertButton, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getSeriesDetail, updateSeriesStatus, watchSeriesAllReleased } from '../api/endpoints/series';
+import { getSeriesDetail, watchSeriesAllReleased } from '../api/endpoints/series';
 import { markEpisodeWatched } from '../api/endpoints/episodes';
 import { addNote, unwatchEpisode } from '../api/endpoints/episode-watches';
 import { watchSeasonAll } from '../api/endpoints/seasons';
@@ -25,7 +25,7 @@ import { appAlert } from '../utils/appAlert';
 import { episodeLabel, formatStatusLabel } from '../utils/format';
 import { pickImage } from '../utils/media';
 import { computeSeasonProgress, seasonDisplayTitle } from '../utils/seasonProgress';
-import { getAvailableStatusActions, SeriesStatusAction } from '../utils/seriesStatusActions';
+import { useSeriesOptionsMenu } from '../hooks/useSeriesOptionsMenu';
 
 type SeriesDetailRoute = RouteProp<RootStackParamList, 'SeriesDetail'>;
 
@@ -145,58 +145,17 @@ export function SeriesDetailScreen() {
     },
   });
 
-  // Put on hold / Drop series / Resume watching — never touches watch
-  // history, only userStatus (+ nextEpisodeId, which the backend derives/
-  // preserves correctly — see server/docs/on-hold-dropped-status-todo.md).
-  // Patches the cached SeriesDetail in place (same pattern as
-  // applyUnwatchResult below) so the badge and "Continue tracking" card
-  // update immediately, then invalidates Home/Watch List so those screens
-  // reflect the change without a manual refresh — this series may now need
-  // to appear in or disappear from either of them.
-  const updateStatusMutation = useMutation({
-    mutationFn: (targetStatus: SeriesStatusAction['targetStatus']) => updateSeriesStatus(params.seriesId, targetStatus),
-    onSuccess: (result) => {
-      queryClient.setQueryData<SeriesDetail>(queryKeys.seriesDetail(params.seriesId), (previous) =>
-        previous ? { ...previous, userStatus: result.userStatus, nextEpisode: result.nextEpisode } : previous,
-      );
-      void queryClient.invalidateQueries({ queryKey: queryKeys.seriesDetail(params.seriesId) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.home });
-      // Partial match (no params) — invalidates every Watch List status-filter
-      // tab, not just whichever one happened to be open last.
-      void queryClient.invalidateQueries({ queryKey: queryKeys.seriesLists });
-      // A status change (e.g. WATCHLIST -> WATCHING, or DROPPED -> WATCHING)
-      // can add or remove this series' episodes from Upcoming's eligibility
-      // set — see upcoming-query-helpers.ts's UPCOMING_ELIGIBLE_STATUSES.
-      void queryClient.invalidateQueries({ queryKey: ['upcoming'] });
-    },
-    onError: (mutationError) => {
-      appAlert('Could Not Update Status', getErrorMessage(mutationError));
-    },
+  // Put on hold / Drop series / Resume watching / Remove from Watchlist —
+  // shared with Home's rail cards, see useSeriesOptionsMenu.ts. The
+  // onStatusUpdated callback here patches the cached SeriesDetail in place
+  // (same pattern as applyUnwatchResult below) so the badge and "Continue
+  // tracking" card update immediately, ahead of the hook's own broader
+  // invalidation-triggered refetch.
+  const { openMenu: handleOpenStatusMenu, hasMenu: hasStatusMenu, isPending: isUpdatingStatus } = useSeriesOptionsMenu(params.seriesId, (result) => {
+    queryClient.setQueryData<SeriesDetail>(queryKeys.seriesDetail(params.seriesId), (previous) =>
+      previous ? { ...previous, userStatus: result.userStatus, nextEpisode: result.nextEpisode } : previous,
+    );
   });
-
-  const runStatusAction = async (action: SeriesStatusAction) => {
-    if (action.requiresConfirmation) {
-      const confirmed = await confirmAsync(action.label, action.confirmationMessage ?? '', action.label);
-      if (!confirmed) return;
-    }
-    updateStatusMutation.mutate(action.targetStatus);
-  };
-
-  // "..." options button — hidden entirely when there's nothing to offer
-  // (WATCHLIST/UNKNOWN, see getAvailableStatusActions). One native Alert
-  // with one button per available action, matching this screen's existing
-  // Alert-based confirm/dry-run patterns rather than introducing a new
-  // menu component.
-  const handleOpenStatusMenu = (currentStatus: SeriesDetail['userStatus']) => {
-    const actions = getAvailableStatusActions(currentStatus);
-    if (actions.length === 0) return;
-
-    const buttons: AlertButton[] = [
-      ...actions.map((action) => ({ text: action.label, onPress: () => void runStatusAction(action) })),
-      { text: 'Cancel', style: 'cancel' as const },
-    ];
-    appAlert('Series Options', undefined, buttons, { cancelable: true });
-  };
 
   // The one season auto-expanded on first load: the one with the next
   // episode, else the first with anything left to watch, else the last
@@ -385,16 +344,16 @@ export function SeriesDetailScreen() {
             <StatusBadge status={data.userStatus} />
           </View>
         </View>
-        {getAvailableStatusActions(data.userStatus).length > 0 ? (
+        {hasStatusMenu(data.userStatus) ? (
           <Pressable
             style={({ pressed }) => [styles.optionsButton, pressed && styles.pressed]}
             onPress={() => handleOpenStatusMenu(data.userStatus)}
-            disabled={updateStatusMutation.isPending}
+            disabled={isUpdatingStatus}
             hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel="Series options"
           >
-            {updateStatusMutation.isPending ? (
+            {isUpdatingStatus ? (
               <ActivityIndicator size="small" color={colors.textSecondary} />
             ) : (
               <Text style={styles.optionsGlyph}>⋯</Text>

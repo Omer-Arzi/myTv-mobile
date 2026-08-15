@@ -12,6 +12,7 @@ import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
 import { SectionHeader } from '../components/SectionHeader';
 import { SeriesCard } from '../components/SeriesCard';
+import { HomeRailSeriesCard } from '../components/HomeRailSeriesCard';
 import { WatchNextCard, WatchNextCompletionOutcome } from '../components/WatchNextCard';
 import { EmptyState } from '../components/EmptyState';
 import { AnimatedExitWrapper } from '../components/AnimatedExitWrapper';
@@ -479,12 +480,13 @@ export function HomeScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.rail}
           renderItem={({ item }: { item: StaleSeriesItem }) => (
-            <SeriesCard
-              variant="rail"
+            <HomeRailSeriesCard
+              seriesId={item.series.id}
+              userStatus={item.userStatus}
+              showBadge
               title={item.series.title}
               posterUrl={pickImage(item.series.posterUrl, item.nextEpisode?.imageUrl, item.series.backdropUrl)}
               subtitle={item.lastWatchedAt ? `Last watched ${formatDate(item.lastWatchedAt)}` : undefined}
-              userStatus={item.userStatus}
               onPress={() => openSeries(item.series.id, item.series.title)}
             />
           )}
@@ -509,8 +511,12 @@ export function HomeScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.rail}
           renderItem={({ item }: { item: HavenStartedYetItem }) => (
-            <SeriesCard
-              variant="rail"
+            <HomeRailSeriesCard
+              seriesId={item.series.id}
+              // Always WATCHLIST by definition for this section (see the
+              // HavenStartedYetItem type comment) — the API doesn't
+              // (and doesn't need to) send it explicitly.
+              userStatus="WATCHLIST"
               title={item.series.title}
               posterUrl={pickImage(item.series.posterUrl, item.latestReleasedRegularEpisode.imageUrl, item.series.backdropUrl)}
               subtitle={`${item.releasedRegularEpisodeCount} episode${item.releasedRegularEpisodeCount === 1 ? '' : 's'} out`}
