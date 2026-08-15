@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react-native';
-import { WatchNextCard, CaughtUpCard, shouldCommitSwipe } from '../WatchNextCard';
+import { WatchNextCard, CaughtUpCard, shouldCommitSwipe, resolveGestureDirection } from '../WatchNextCard';
 
 const LRI = '⁦';
 const PDI = '⁩';
@@ -120,6 +120,50 @@ describe('shouldCommitSwipe — swipe commit decision', () => {
 
   it('does not commit on that same short drag distance at low/idle velocity — the fast-flick path requires real speed, not just some movement', () => {
     expect(shouldCommitSwipe(50, 0.001)).toBe(false);
+  });
+});
+
+describe('resolveGestureDirection — swipe vs. scroll direction lock', () => {
+  it('locks horizontal once dx clearly dominates dy past the activation threshold', () => {
+    expect(resolveGestureDirection('undetermined', 20, 5)).toBe('horizontal');
+  });
+
+  it('locks vertical once dy clearly dominates dx past the fail threshold', () => {
+    expect(resolveGestureDirection('undetermined', 5, 20)).toBe('vertical');
+  });
+
+  // The actual bug: real swipes very commonly have a slight vertical wobble
+  // in their earliest cumulative sample before the finger's real horizontal
+  // direction takes over. Before requiring the same dominance margin on
+  // both sides, dy=17/dx=15 locked 'vertical' immediately (dy only needed
+  // to barely edge past dx) and never reconsidered for the rest of the
+  // gesture — the card silently never responded to what was, a few pixels
+  // later, an unambiguous horizontal swipe. Reported as "sometimes the
+  // dragging just doesn't work."
+  it('does NOT lock vertical on a near-diagonal sample that only barely favors dy — stays undetermined for re-evaluation, the regression this fix closes', () => {
+    expect(resolveGestureDirection('undetermined', 15, 17)).toBe('undetermined');
+  });
+
+  it('does not lock horizontal on that same near-diagonal sample either — dx does not clearly dominate dy', () => {
+    expect(resolveGestureDirection('undetermined', 17, 15)).toBe('undetermined');
+  });
+
+  it('resolves to horizontal on a later sample once dx clearly pulls ahead, after an earlier ambiguous sample left it undetermined', () => {
+    const afterFirstSample = resolveGestureDirection('undetermined', 15, 17);
+    expect(afterFirstSample).toBe('undetermined');
+    expect(resolveGestureDirection(afterFirstSample, 40, 18)).toBe('horizontal');
+  });
+
+  it('never reconsiders an already-locked horizontal direction, even if dy later grows larger than dx', () => {
+    expect(resolveGestureDirection('horizontal', 5, 100)).toBe('horizontal');
+  });
+
+  it('never reconsiders an already-locked vertical direction, even if dx later grows larger than dy', () => {
+    expect(resolveGestureDirection('vertical', 100, 5)).toBe('vertical');
+  });
+
+  it('stays undetermined below both activation thresholds', () => {
+    expect(resolveGestureDirection('undetermined', 5, 5)).toBe('undetermined');
   });
 });
 

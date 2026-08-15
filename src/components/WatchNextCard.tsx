@@ -120,8 +120,51 @@ const HORIZONTAL_DOMINANCE_RATIO = 1.3;
 // of the horizontal condition so an ambiguous diagonal doesn't sit in limbo
 // forever; once either side wins, the decision is locked for the gesture.
 const VERTICAL_FAIL_THRESHOLD = 16;
+// Reused for the vertical side of the direction check below — deliberately
+// the SAME ratio as HORIZONTAL_DOMINANCE_RATIO, not a separate, looser
+// constant. Before this fix, vertical only needed |dy| to barely edge past
+// |dx| (a ratio of ~1.0) to lock in and permanently give up on this
+// gesture — while horizontal needed a full 1.3x margin to win. That
+// asymmetry meant a real horizontal swipe whose very first cumulative
+// touch-move sample happened to read e.g. dy=17,dx=15 (an entirely normal
+// initial angle for a real finger swipe, well within the first ~20px)
+// would lock 'vertical' immediately and never reconsider — the card
+// simply never responds to a swipe that, a few pixels later, would have
+// clearly been horizontal. Reported as "sometimes the dragging just
+// doesn't work, for no clear reason." Requiring the same margin on both
+// sides means an ambiguous near-diagonal sample no longer prematurely
+// kills the gesture in either direction — it stays undetermined and gets
+// re-evaluated on the next sample instead, exactly like the horizontal
+// side already did.
+const VERTICAL_DOMINANCE_RATIO = HORIZONTAL_DOMINANCE_RATIO;
 
-type GestureDirection = 'undetermined' | 'horizontal' | 'vertical';
+export type GestureDirection = 'undetermined' | 'horizontal' | 'vertical';
+
+// Pure and exported, mirroring shouldCommitSwipe's own rationale below: the
+// direction-lock decision is unit-testable without simulating
+// PanResponder's raw touch/gestureState machinery. This is exactly the
+// logic that was previously inline inside onMoveShouldSetPanResponder with
+// zero test coverage — the asymmetric-dominance bug (see
+// VERTICAL_DOMINANCE_RATIO's comment above) hid there undetected. current
+// is the direction already locked in for this gesture, if any — once it's
+// 'horizontal' or 'vertical', this always returns that same value
+// unchanged; only 'undetermined' ever gets re-evaluated. dx/dy are
+// PanResponder's own cumulative-since-gesture-start values, not per-frame
+// deltas.
+export function resolveGestureDirection(current: GestureDirection, dx: number, dy: number): GestureDirection {
+  if (current !== 'undetermined') return current;
+
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+
+  if (dx > HORIZONTAL_ACTIVATION_THRESHOLD && absDx > absDy * HORIZONTAL_DOMINANCE_RATIO) {
+    return 'horizontal';
+  }
+  if (absDy > VERTICAL_FAIL_THRESHOLD && absDy > absDx * VERTICAL_DOMINANCE_RATIO) {
+    return 'vertical';
+  }
+  return 'undetermined'; // still ambiguous — ask again on the next move sample
+}
 
 // TV Time-style compact "continue watching" row: thumbnail on the left,
 // series title as a small pill + a large SxxEyy + episode title in the
@@ -260,33 +303,43 @@ export function WatchNextCard({
         hasCommitted.current = false;
         return false;
       },
-      onMoveShouldSetPanResponder: (_, gesture) => {
+      onMoveShouldSetPanResponder: (event, gesture) => {
         const { isMarking: marking, markDisabled: disabled } = latest.current;
         if (marking || disabled) return false;
 
-        if (direction.current === 'horizontal') return true;
-        if (direction.current === 'vertical') return false;
+        direction.current = resolveGestureDirection(direction.current, gesture.dx, gesture.dy);
+        if (direction.current !== 'horizontal') return false;
 
-        const absDx = Math.abs(gesture.dx);
-        const absDy = Math.abs(gesture.dy);
-
-        if (gesture.dx > HORIZONTAL_ACTIVATION_THRESHOLD && absDx > absDy * HORIZONTAL_DOMINANCE_RATIO) {
-          direction.current = 'horizontal';
-          return true;
-        }
-
-        if (absDy > VERTICAL_FAIL_THRESHOLD && absDy > absDx) {
-          direction.current = 'vertical';
-          return false;
-        }
-
-        return false; // still ambiguous — ask again on the next move sample
+        // Web only, effectively (a no-op on native, which has no browser
+        // scroll to suppress): the parent ScrollView's scrollEnabled gets
+        // disabled via onSwipeLockChange below, but that's a React state
+        // update — asynchronous relative to this touch event, and on web
+        // the ScrollView is a real, natively-scrollable DOM element. The
+        // browser can start its own native scroll/rubber-band response to
+        // this same touch-move before React's re-render lands, and then
+        // visibly snap back the instant scrollEnabled does take effect
+        // mid-scroll — reported as "scrolling starts, then returns to
+        // place a bit." Calling preventDefault the moment this gesture is
+        // recognized as horizontal stops the browser's native scroll from
+        // ever starting, rather than racing to undo it after the fact.
+        event.preventDefault();
+        return true;
       },
       onPanResponderGrant: () => {
         // Only reachable via the 'horizontal' branch above.
         latest.current.onSwipeLockChange?.(true);
       },
-      onPanResponderMove: (_, gesture) => {
+      onPanResponderMove: (event, gesture) => {
+        // Some browsers only fully suppress native scroll for a touch
+        // sequence if preventDefault is called on every move event, not
+        // just the first — see the matching call (and its full rationale)
+        // in onMoveShouldSetPanResponder above. Called unconditionally for
+        // the rest of this gesture (this handler is only ever reached at
+        // all once direction is already 'horizontal' — onMoveShouldSetPanResponder
+        // returns false otherwise), including after commit, since the
+        // finger can still be down and moving during the commit animation.
+        event.preventDefault();
+
         if (hasCommitted.current) return; // the commit animation owns translateX now
 
         // 1:1 tracking, the full drag range (not clamped to the commit
